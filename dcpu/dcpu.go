@@ -14,8 +14,16 @@ type ProtectionError struct {
 }
 
 func (err *ProtectionError) Error() string {
-	return fmt.Sprintf("protection violation at address %#x (instruction %#x, operands %#x, %#x)",
+	return fmt.Sprintf("protection violation at address %#x (instruction %#04x, operands %#x, %#x)",
 		err.Address, err.Opcode, err.OperandA, err.OperandB)
+}
+
+type OpcodeError struct {
+	Opcode Word
+}
+
+func (err *OpcodeError) Error() string {
+	return fmt.Sprintf("invalid opcode %#04x", err.Opcode)
 }
 
 type Registers struct {
@@ -209,14 +217,26 @@ func (s *State) Step() error {
 	ins, a, b := decodeOpcode(opcode)
 
 	var assignable *Word
-	a, assignable = s.translateOperand(a)
-	b, _ = s.translateOperand(b)
+	if ins != 0 { // don't translate for the non-basic opcodes
+		a, assignable = s.translateOperand(a)
+		b, _ = s.translateOperand(b)
+	}
 
 	// execute
 	var val Word
 	switch ins {
 	case 0:
-		// marked RESERVED, lets just treat it as a NOP
+		ins, a = a, b
+		switch ins {
+		case 1:
+			// JSR a - pushes the address of the next instruction to the stack, then sets PC to a
+			_, assignable = s.translateOperand(0x1a) // PUSH
+			a, _ = s.translateOperand(a)
+			*assignable = s.PC
+			s.PC = a
+		default:
+			return &OpcodeError{opcode}
+		}
 	case 1:
 		// SET a, b - sets a to b
 		val = b
