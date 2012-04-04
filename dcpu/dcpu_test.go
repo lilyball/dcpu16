@@ -87,3 +87,93 @@ var notchAssemblerTestProgram = [...]Word{
 	// :end         sub PC, 1
 	0x85C3, // 32
 }
+
+func TestNotchSpecExample(t *testing.T) {
+	state := new(State)
+	if err := state.LoadProgram(notchSpecExampleProgram[:], 0, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// test the first section
+	for i := 0; i < 4; i++ {
+		if err := state.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state.A != 0x10 {
+		t.Errorf("Unexpected value for register A; expected %#x, found %#x", 0x10, state.A)
+	}
+	if state.PC != 10 {
+		t.Errorf("Unexpected value for register PC; expected %#x, found %#x", 10, state.A)
+	}
+	// run 12 more instructions (partway into the loop)
+	for i := 0; i < 12; i++ {
+		if err := state.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state.I != 7 {
+		t.Errorf("Unexpected value for register I; expected %#x, found %#x", 7, state.I)
+	}
+	// 29 more instructions to finish the loop
+	for i := 0; i < 29; i++ {
+		if err := state.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state.I != 0 {
+		t.Errorf("Unexpected value for register I; expected %#x, found %#x", 0, state.I)
+	}
+	if state.PC != 19 {
+		t.Errorf("Unexpected value for register PC; expected %#x, found t#x", 19, state.PC)
+	}
+	if state.SP != 0 {
+		t.Errorf("Unexpected value for register SP; expected %#x, found %#x", 0, state.SP)
+	}
+	// 2 more instructions to put us into the subroutine
+	for i := 0; i < 2; i++ {
+		if err := state.Step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state.X != 4 {
+		t.Errorf("Unexpected value for register X; expected %#x, found %#x", 4, state.X)
+	}
+	if state.PC != 24 {
+		t.Errorf("Unexpected value for register PC; expected %#x, found %#x", 24, state.PC)
+	}
+	if state.SP != 0xffff {
+		t.Errorf("Unexpected value for register SP; expected %#x, found %#x", 0xffff, state.SP)
+	}
+	if state.Ram[0xffff] != 22 {
+		t.Errorf("Unexpected value at 0xffff; expected %#x, found %#x", 22, state.Ram[0xffff])
+		t.FailNow()
+	}
+	// stop the program for 1000 steps, or until it hits the instruction 0x7DC1 PC
+	success := false
+	for i := 0; i < 1000; i++ {
+		if err := state.Step(); err != nil {
+			t.Fatal(err)
+		}
+		if state.Ram[state.PC] == 0x7DC1 && state.Ram[state.PC+1] == state.PC {
+			success = true
+			break
+		}
+	}
+	if !success {
+		// we exhausted our steps
+		t.Error("Program exceeded 1000 steps")
+	}
+
+	// Check register X, it should be 0x40
+	if state.X != 0x40 {
+		t.Error("Unexpected value for register X; expected %#x, found %#x", 0x40, state.X)
+	}
+}
+
+var notchSpecExampleProgram = [...]Word{
+	0x7c01, 0x0030, 0x7de1, 0x1000, 0x0020, 0x7803, 0x1000, 0xc00d,
+	0x7dc1, 0x001a, 0xa861, 0x7c01, 0x2000, 0x2161, 0x2000, 0x8463,
+	0x806d, 0x7dc1, 0x000d, 0x9031, 0x7c10, 0x0018, 0x7dc1, 0x001a,
+	0x9037, 0x61c1, 0x7dc1, 0x001a, 0x0000, 0x0000, 0x0000, 0x0000,
+}
