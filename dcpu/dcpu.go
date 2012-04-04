@@ -124,28 +124,28 @@ func (s *State) translateOperand(op Word) (val Word, assignable *Word) {
 		assignable = &s.Ram[s.J]
 	// 16-23: [next word of ram + register value] - memory address offset by register value
 	case 16:
-		assignable = &s.Ram[s.PC+s.A]
+		assignable = &s.Ram[s.Ram[s.PC]+s.A]
 		s.PC++
 	case 17:
-		assignable = &s.Ram[s.PC+s.B]
+		assignable = &s.Ram[s.Ram[s.PC]+s.B]
 		s.PC++
 	case 18:
-		assignable = &s.Ram[s.PC+s.C]
+		assignable = &s.Ram[s.Ram[s.PC]+s.C]
 		s.PC++
 	case 19:
-		assignable = &s.Ram[s.PC+s.X]
+		assignable = &s.Ram[s.Ram[s.PC]+s.X]
 		s.PC++
 	case 20:
-		assignable = &s.Ram[s.PC+s.Y]
+		assignable = &s.Ram[s.Ram[s.PC]+s.Y]
 		s.PC++
 	case 21:
-		assignable = &s.Ram[s.PC+s.Z]
+		assignable = &s.Ram[s.Ram[s.PC]+s.Z]
 		s.PC++
 	case 22:
-		assignable = &s.Ram[s.PC+s.I]
+		assignable = &s.Ram[s.Ram[s.PC]+s.I]
 		s.PC++
 	case 23:
-		assignable = &s.Ram[s.PC+s.J]
+		assignable = &s.Ram[s.Ram[s.PC]+s.J]
 		s.PC++
 	// 24: POP - value at stack address, then increases stack counter
 	case 24:
