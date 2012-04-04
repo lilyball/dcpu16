@@ -238,6 +238,7 @@ func (s *State) Step() error {
 	var val Word
 	switch ins {
 	case 0:
+		// non-basic opcodes
 		ins, a = a, b
 		switch ins {
 		case 1:
@@ -251,7 +252,7 @@ func (s *State) Step() error {
 					OperandA: a,
 				}
 			}
-			*assignable = s.PC
+			val = s.PC
 			s.PC = a
 		default:
 			return &OpcodeError{opcode}
