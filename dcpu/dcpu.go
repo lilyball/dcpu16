@@ -1,6 +1,22 @@
 package dcpu
 
+import (
+	"fmt"
+	"unsafe"
+)
+
 type Word uint16
+
+type ProtectionError struct {
+	Address            Word
+	Opcode             Word
+	OperandA, OperandB Word
+}
+
+func (err *ProtectionError) Error() string {
+	return fmt.Sprintf("protection violation at address %#x (instruction %#x, operands %#x, %#x)",
+		err.Address, err.Opcode, err.OperandA, err.OperandB)
+}
 
 type Registers struct {
 	A, B, C, X, Y, Z, I, J Word
@@ -9,9 +25,39 @@ type Registers struct {
 	O                      Word
 }
 
+type Region struct {
+	Start  Word
+	Length Word
+}
+
+func (r Region) Contains(address Word) bool {
+	return address >= r.Start && address < r.Start+r.Length
+}
+
+// End() returns the first address not contained in the region
+func (r Region) End() Word {
+	return r.Start + r.Length
+}
+
+func (r Region) Union(r2 Region) Region {
+	var reg Region
+	if r2.Start < r.Start {
+		reg.Start = r2.Start
+	} else {
+		reg.Start = r.Start
+	}
+	if r2.End() > r.End() {
+		reg.Length = r2.End() - reg.Start
+	} else {
+		reg.Length = r.End() - reg.Start
+	}
+	return reg
+}
+
 type State struct {
 	Registers
-	Ram [0x10000]Word
+	Ram       [0x10000]Word
+	Protected []Region
 }
 
 func decodeOpcode(opcode Word) (oooo, aaaaaa, bbbbbb Word) {
@@ -141,8 +187,20 @@ func (s *State) translateOperand(op Word) (val Word, assignable *Word) {
 	return
 }
 
+func (s *State) isProtected(address Word) bool {
+	for _, region := range s.Protected {
+		if region.Contains(address) {
+			return true
+		}
+		if region.Start > address {
+			break
+		}
+	}
+	return false
+}
+
 // Step iterates the CPU by one instruction.
-func (s *State) Step() {
+func (s *State) Step() error {
 	// fetch
 	opcode := s.Ram[s.PC]
 	s.PC++
@@ -230,6 +288,30 @@ func (s *State) Step() {
 
 	// store
 	if ins >= 1 && ins <= 11 && assignable != nil {
+		// test memory protection
+		// are we in our ram?
+		assPtr := uintptr(unsafe.Pointer(assignable))
+		ramStart := uintptr(unsafe.Pointer(&s.Ram[0]))
+		ramEnd := uintptr(unsafe.Pointer(&s.Ram[len(s.Ram)-1]))
+		if assPtr >= ramStart && assPtr <= ramEnd {
+			index := Word((assPtr - ramStart) / unsafe.Sizeof(s.Ram[0]))
+			for _, region := range s.Protected {
+				if region.Contains(index) {
+					// protection error
+					return &ProtectionError{
+						Address:  index,
+						Opcode:   opcode,
+						OperandA: a,
+						OperandB: b,
+					}
+				} else if region.Start > index {
+					break
+				}
+			}
+		}
+		// go ahead and store
 		*assignable = val
 	}
+
+	return nil
 }
