@@ -10,8 +10,8 @@ func TestLoadProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < len(notchAssemblerTestProgram); i++ {
-		if state.Ram[i] != notchAssemblerTestProgram[i] {
-			t.Errorf("Expected word %04x, found word %04x at offset %d", notchAssemblerTestProgram[i], state.Ram[i], i)
+		if state.Ram.GetWord(Word(i)) != notchAssemblerTestProgram[i] {
+			t.Errorf("Expected word %04x, found word %04x at offset %d", notchAssemblerTestProgram[i], state.Ram.GetWord(Word(i)), i)
 			break
 		}
 	}
@@ -26,24 +26,24 @@ func TestNotchAssemblerTest(t *testing.T) {
 	// step the program for 1000 steps, or until it hits the opcode 0x85C3
 	// hitting 1000 steps is considered failure
 	for i := 0; i < 1000; i++ {
-		t.Logf("%d: %04x", state.PC, state.Ram[state.PC])
+		t.Logf("%d: %04x", state.PC(), state.Ram.GetWord(state.PC()))
 		if err := state.Step(); err != nil {
 			t.Fatal(err)
 			break
 		}
-		if state.Ram[state.PC] == 0x85C3 { // sub PC, 1
+		if state.Ram.GetWord(state.PC()) == 0x85C3 { // sub PC, 1
 			break
 		}
 	}
-	if state.Ram[state.PC] != 0x85C3 {
+	if state.Ram.GetWord(state.PC()) != 0x85C3 {
 		// we exhausted our steps
 		t.Error("Program exceeded 1000 steps")
 	}
 	// check 0x8000 - 0x800B for "Hello world!"
 	expected := "Hello world!"
 	for i := 0; i < len(expected); i++ {
-		if state.Ram[0x8000+i] != Word(expected[i]) {
-			t.Errorf("Unexpected output in video ram; expected %v, found %v", []byte(expected), state.Ram[0x8000:0x800B])
+		if state.Ram.GetWord(Word(0x8000+i)) != Word(expected[i]) {
+			t.Errorf("Unexpected output in video ram; expected %v, found %v", []byte(expected), state.Ram.GetSlice(0x8000, 0x800B))
 			break
 		}
 	}
@@ -100,11 +100,11 @@ func TestNotchSpecExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if state.A != 0x10 {
-		t.Errorf("Unexpected value for register A; expected %#x, found %#x", 0x10, state.A)
+	if state.A() != 0x10 {
+		t.Errorf("Unexpected value for register A; expected %#x, found %#x", 0x10, state.A())
 	}
-	if state.PC != 10 {
-		t.Errorf("Unexpected value for register PC; expected %#x, found %#x", 10, state.A)
+	if state.PC() != 10 {
+		t.Errorf("Unexpected value for register PC; expected %#x, found %#x", 10, state.A())
 	}
 	// run 12 more instructions (partway into the loop)
 	for i := 0; i < 12; i++ {
@@ -112,8 +112,8 @@ func TestNotchSpecExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if state.I != 7 {
-		t.Errorf("Unexpected value for register I; expected %#x, found %#x", 7, state.I)
+	if state.I() != 7 {
+		t.Errorf("Unexpected value for register I; expected %#x, found %#x", 7, state.I())
 	}
 	// 29 more instructions to finish the loop
 	for i := 0; i < 29; i++ {
@@ -121,14 +121,14 @@ func TestNotchSpecExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if state.I != 0 {
-		t.Errorf("Unexpected value for register I; expected %#x, found %#x", 0, state.I)
+	if state.I() != 0 {
+		t.Errorf("Unexpected value for register I; expected %#x, found %#x", 0, state.I())
 	}
-	if state.PC != 19 {
-		t.Errorf("Unexpected value for register PC; expected %#x, found t#x", 19, state.PC)
+	if state.PC() != 19 {
+		t.Errorf("Unexpected value for register PC; expected %#x, found t#x", 19, state.PC())
 	}
-	if state.SP != 0 {
-		t.Errorf("Unexpected value for register SP; expected %#x, found %#x", 0, state.SP)
+	if state.SP() != 0 {
+		t.Errorf("Unexpected value for register SP; expected %#x, found %#x", 0, state.SP())
 	}
 	// 2 more instructions to put us into the subroutine
 	for i := 0; i < 2; i++ {
@@ -136,17 +136,17 @@ func TestNotchSpecExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if state.X != 4 {
-		t.Errorf("Unexpected value for register X; expected %#x, found %#x", 4, state.X)
+	if state.X() != 4 {
+		t.Errorf("Unexpected value for register X; expected %#x, found %#x", 4, state.X())
 	}
-	if state.PC != 24 {
-		t.Errorf("Unexpected value for register PC; expected %#x, found %#x", 24, state.PC)
+	if state.PC() != 24 {
+		t.Errorf("Unexpected value for register PC; expected %#x, found %#x", 24, state.PC())
 	}
-	if state.SP != 0xffff {
-		t.Errorf("Unexpected value for register SP; expected %#x, found %#x", 0xffff, state.SP)
+	if state.SP() != 0xffff {
+		t.Errorf("Unexpected value for register SP; expected %#x, found %#x", 0xffff, state.SP())
 	}
-	if state.Ram[0xffff] != 22 {
-		t.Errorf("Unexpected value at 0xffff; expected %#x, found %#x", 22, state.Ram[0xffff])
+	if state.Ram.GetWord(0xffff) != 22 {
+		t.Errorf("Unexpected value at 0xffff; expected %#x, found %#x", 22, state.Ram.GetWord(0xffff))
 		t.FailNow()
 	}
 	// stop the program for 1000 steps, or until it hits the instruction 0x7DC1 PC
@@ -155,7 +155,7 @@ func TestNotchSpecExample(t *testing.T) {
 		if err := state.Step(); err != nil {
 			t.Fatal(err)
 		}
-		if state.Ram[state.PC] == 0x7DC1 && state.Ram[state.PC+1] == state.PC {
+		if state.Ram.GetWord(state.PC()) == 0x7DC1 && state.Ram.GetWord(state.PC()+1) == state.PC() {
 			success = true
 			break
 		}
@@ -166,8 +166,8 @@ func TestNotchSpecExample(t *testing.T) {
 	}
 
 	// Check register X, it should be 0x40
-	if state.X != 0x40 {
-		t.Error("Unexpected value for register X; expected %#x, found %#x", 0x40, state.X)
+	if state.X() != 0x40 {
+		t.Error("Unexpected value for register X; expected %#x, found %#x", 0x40, state.X())
 	}
 }
 
