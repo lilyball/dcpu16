@@ -11,7 +11,7 @@ type Registers struct {
 
 type State struct {
 	Registers
-	Ram *[0x10000]Word
+	Ram [0x10000]Word
 }
 
 func (s *State) translateOperand(op Word) (val Word, assignable *Word) {
