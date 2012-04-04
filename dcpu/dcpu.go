@@ -14,6 +14,32 @@ type State struct {
 	Ram [0x10000]Word
 }
 
+func decodeOpcode(opcode Word) (oooo, aaaaaa, bbbbbb Word) {
+	oooo = opcode & 0xF
+	aaaaaa = (opcode >> 4) & 0x3F
+	bbbbbb = (opcode >> 10) & 0x3F
+	return
+}
+
+// wordCount counts the number of words in the instruction identified by the given opcode
+func wordCount(opcode Word) Word {
+	_, a, b := decodeOpcode(opcode)
+	count := Word(1)
+	switch {
+	case a >= 16 && a <= 23:
+	case a == 30:
+	case a == 31:
+		count++
+	}
+	switch {
+	case b >= 16 && b <= 23:
+	case b == 30:
+	case b == 31:
+		count++
+	}
+	return count
+}
+
 func (s *State) translateOperand(op Word) (val Word, assignable *Word) {
 	switch op {
 	// 0-7: register value - register values
@@ -122,11 +148,9 @@ func (s *State) Step() {
 	s.PC++
 
 	// decode
-	ins := opcode & 0xF
-	a := (opcode >> 4) & 0x3F
-	b := (opcode >> 10) & 0x3F
-	var assignable *Word
+	ins, a, b := decodeOpcode(opcode)
 
+	var assignable *Word
 	a, assignable = s.translateOperand(a)
 	b, _ = s.translateOperand(b)
 
@@ -183,22 +207,22 @@ func (s *State) Step() {
 	case 12:
 		// IFE a, b - skips one instruction if a!=b
 		if a != b {
-			s.PC++
+			s.PC += wordCount(s.Ram[s.PC])
 		}
 	case 13:
 		// IFN a, b - skips one instruction if a==b
 		if a == b {
-			s.PC++
+			s.PC += wordCount(s.Ram[s.PC])
 		}
 	case 14:
 		// IFG a, b - skips one instruction if a<=b
 		if a <= b {
-			s.PC++
+			s.PC += wordCount(s.Ram[s.PC])
 		}
 	case 15:
 		// IFB a, b - skips one instruction if (a&b)==0
 		if (a & b) == 0 {
-			s.PC++
+			s.PC += wordCount(s.Ram[s.PC])
 		}
 	default:
 		panic("Out of bounds opcode")
