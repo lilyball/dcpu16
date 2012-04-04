@@ -218,67 +218,73 @@ func (s *State) Step() error {
 	case 0:
 		// marked RESERVED, lets just treat it as a NOP
 	case 1:
-		// SET a, b - sets value of b to a
+		// SET a, b - sets a to b
 		val = b
 	case 2:
-		// ADD a, b - adds b to a, sets O
+		// ADD a, b - sets a to a+b, sets O to 0x0001 if there's an overflow, 0x0 otherwise
 		result := uint32(a) + uint32(b)
 		val = Word(result & 0xFFFF)
-		s.O = Word(result >> 16)
+		s.O = Word(result >> 16) // will always be 0x0 or 0x1
 	case 3:
-		// SUB a, b - subtracts b from a, sets O
+		// SUB a, b - sets a to a-b, sets O to 0xffff if there's an underflow, 0x0 otherwise
 		result := uint32(a) - uint32(b)
 		val = Word(result & 0xFFFF)
-		s.O = Word(result >> 16)
+		s.O = Word(result >> 16) // will always be 0x0 or 0xffff
 	case 4:
-		// MUL a, b - multiplies a by b, sets O
+		// MUL a, b - sets a to a*b, sets O to ((a*b)>>16)&0xffff
 		result := uint32(a) * uint32(b)
 		val = Word(result & 0xFFFF)
 		s.O = Word(result >> 16)
 	case 5:
-		// DIV a, b - divides a by b, sets O
-		// NB: how can this overflow?
-		// assuming for the moment that O is supposed to be the mod
-		val = a / b
-		s.O = a % b
+		// DIV a, b - sets a to a/b, sets O to ((a<<16)/b)&0xffff. if b==0, sets a and O to 0 instead.
+		if b == 0 {
+			val, s.O = 0, 0
+		} else {
+			val = a / b
+			s.O = Word(((uint32(a) << 16) / uint32(b)))
+		}
 	case 6:
-		// MOD a, b - remainder of a over b
-		val = a % b
+		// MOD a, b - sets a to a%b. if b==0, sets a to 0 instead.
+		if b == 0 {
+			val = 0
+		} else {
+			val = a % b
+		}
 	case 7:
-		// SHL a, b - shifts a left b places, sets O
+		// SHL a, b - sets a to a<<b, sets O to ((a<<b)>>16)&0xffff
 		result := uint32(a) << uint32(b)
 		val = Word(result & 0xFFFF)
 		s.O = Word(result >> 16)
 	case 8:
-		// SHR a, b - shifts a right b places, sets O
-		// NB: how can this overflow?
+		// SHR a, b - sets a to a>>b, sets O to ((a<<16)>>b)&0xffff
 		val = a >> b
+		s.O = Word((uint32(a) << 16) >> b)
 	case 9:
-		// AND a, b - binary and of a and b
+		// AND a, b - sets a to a&b
 		val = a & b
 	case 10:
-		// BOR a, b - binary or of a and b
+		// BOR a, b - sets a to a|b
 		val = a | b
 	case 11:
-		// XOR a, b - binary xor of a and b
+		// XOR a, b - sets a to a^b
 		val = a ^ b
 	case 12:
-		// IFE a, b - skips one instruction if a!=b
+		// IFE a, b - performs next instruction only if a==b
 		if a != b {
 			s.PC += wordCount(s.Ram[s.PC])
 		}
 	case 13:
-		// IFN a, b - skips one instruction if a==b
+		// IFN a, b - performs next instruction only if a!=b
 		if a == b {
 			s.PC += wordCount(s.Ram[s.PC])
 		}
 	case 14:
-		// IFG a, b - skips one instruction if a<=b
+		// IFG a, b - performs next instruction only if a>b
 		if a <= b {
 			s.PC += wordCount(s.Ram[s.PC])
 		}
 	case 15:
-		// IFB a, b - skips one instruction if (a&b)==0
+		// IFB a, b - performs next instruction only if (a&b)!=0
 		if (a & b) == 0 {
 			s.PC += wordCount(s.Ram[s.PC])
 		}
