@@ -162,8 +162,8 @@ func (s *State) translateOperand(op Word) (val Word, assignable *Word) {
 	// 25: PEEK - value at stack address
 	case 25:
 		assignable = &s.Ram[s.SP]
+	// 26: PUSH - decreases stack address, then value at stack address
 	case 26:
-		// 26: PUSH - decreases stack address, then value at stack address
 		s.SP--
 		assignable = &s.Ram[s.SP]
 	// 27: SP - current stack pointer value - current stack address
@@ -207,6 +207,18 @@ func (s *State) isProtected(address Word) bool {
 	return false
 }
 
+func (s *State) isProtectedPtr(address *Word) (bool, Word) {
+	// are we in our ram?
+	ptr := uintptr(unsafe.Pointer(address))
+	ramStart := uintptr(unsafe.Pointer(&s.Ram[0]))
+	ramEnd := uintptr(unsafe.Pointer(&s.Ram[len(s.Ram)-1]))
+	if ptr >= ramStart && ptr <= ramEnd {
+		index := Word((ptr - ramStart) / unsafe.Sizeof(s.Ram[0]))
+		return s.isProtected(index), index
+	}
+	return false, 0
+}
+
 // Step iterates the CPU by one instruction.
 func (s *State) Step() error {
 	// fetch
@@ -232,6 +244,13 @@ func (s *State) Step() error {
 			// JSR a - pushes the address of the next instruction to the stack, then sets PC to a
 			_, assignable = s.translateOperand(0x1a) // PUSH
 			a, _ = s.translateOperand(a)
+			if ok, index := s.isProtectedPtr(assignable); ok {
+				return &ProtectionError{
+					Address:  index,
+					Opcode:   opcode,
+					OperandA: a,
+				}
+			}
 			*assignable = s.PC
 			s.PC = a
 		default:
@@ -315,24 +334,13 @@ func (s *State) Step() error {
 	// store
 	if ins >= 1 && ins <= 11 && assignable != nil {
 		// test memory protection
-		// are we in our ram?
-		assPtr := uintptr(unsafe.Pointer(assignable))
-		ramStart := uintptr(unsafe.Pointer(&s.Ram[0]))
-		ramEnd := uintptr(unsafe.Pointer(&s.Ram[len(s.Ram)-1]))
-		if assPtr >= ramStart && assPtr <= ramEnd {
-			index := Word((assPtr - ramStart) / unsafe.Sizeof(s.Ram[0]))
-			for _, region := range s.Protected {
-				if region.Contains(index) {
-					// protection error
-					return &ProtectionError{
-						Address:  index,
-						Opcode:   opcode,
-						OperandA: a,
-						OperandB: b,
-					}
-				} else if region.Start > index {
-					break
-				}
+		if ok, index := s.isProtectedPtr(assignable); ok {
+			// protection error
+			return &ProtectionError{
+				Address:  index,
+				Opcode:   opcode,
+				OperandA: a,
+				OperandB: b,
 			}
 		}
 		// go ahead and store
