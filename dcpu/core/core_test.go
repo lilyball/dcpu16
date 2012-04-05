@@ -1,4 +1,4 @@
-package dcpu
+package core
 
 import (
 	"testing"
@@ -22,12 +22,15 @@ func TestNotchAssemblerTest(t *testing.T) {
 	if err := state.LoadProgram(notchAssemblerTestProgram[:], 0, true); err != nil {
 		t.Fatal(err)
 	}
+	if err := state.Start(); err != nil {
+		t.Fatal(err)
+	}
 
-	// step the program for 1000 steps, or until it hits the opcode 0x85C3
-	// hitting 1000 steps is considered failure
+	// step the program for 1000 cycles, or until it hits the opcode 0x85C3
+	// hitting 1000 cycles is considered failure
 	for i := 0; i < 1000; i++ {
 		t.Logf("%d: %04x", state.PC(), state.Ram.GetWord(state.PC()))
-		if err := state.Step(); err != nil {
+		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 			break
 		}
@@ -37,7 +40,7 @@ func TestNotchAssemblerTest(t *testing.T) {
 	}
 	if state.Ram.GetWord(state.PC()) != 0x85C3 {
 		// we exhausted our steps
-		t.Error("Program exceeded 1000 steps")
+		t.Error("Program exceeded 1000 cycles")
 	}
 	// check 0x8000 - 0x800B for "Hello world!"
 	expected := "Hello world!"
@@ -46,6 +49,9 @@ func TestNotchAssemblerTest(t *testing.T) {
 			t.Errorf("Unexpected output in video ram; expected %v, found %v", []byte(expected), state.Ram.GetSlice(0x8000, 0x800B))
 			break
 		}
+	}
+	if err := state.Stop(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -93,10 +99,13 @@ func TestNotchSpecExample(t *testing.T) {
 	if err := state.LoadProgram(notchSpecExampleProgram[:], 0, true); err != nil {
 		t.Fatal(err)
 	}
+	if err := state.Start(); err != nil {
+		t.Fatal(err)
+	}
 
 	// test the first section
-	for i := 0; i < 4; i++ {
-		if err := state.Step(); err != nil {
+	for i := 0; i < 11; i++ {
+		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -106,18 +115,18 @@ func TestNotchSpecExample(t *testing.T) {
 	if state.PC() != 10 {
 		t.Errorf("Unexpected value for register PC; expected %#x, found %#x", 10, state.A())
 	}
-	// run 12 more instructions (partway into the loop)
-	for i := 0; i < 12; i++ {
-		if err := state.Step(); err != nil {
+	// run 23 more cycles (12 more instructions, partway into the loop)
+	for i := 0; i < 23; i++ {
+		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if state.I() != 7 {
 		t.Errorf("Unexpected value for register I; expected %#x, found %#x", 7, state.I())
 	}
-	// 29 more instructions to finish the loop
-	for i := 0; i < 29; i++ {
-		if err := state.Step(); err != nil {
+	// 59 more cycles (29 more instructions) to finish the loop
+	for i := 0; i < 59; i++ {
+		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -130,9 +139,9 @@ func TestNotchSpecExample(t *testing.T) {
 	if state.SP() != 0 {
 		t.Errorf("Unexpected value for register SP; expected %#x, found %#x", 0, state.SP())
 	}
-	// 2 more instructions to put us into the subroutine
-	for i := 0; i < 2; i++ {
-		if err := state.Step(); err != nil {
+	// 4 more cycles (2 more instructions) to put us into the subroutine
+	for i := 0; i < 4; i++ {
+		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -149,10 +158,16 @@ func TestNotchSpecExample(t *testing.T) {
 		t.Errorf("Unexpected value at 0xffff; expected %#x, found %#x", 22, state.Ram.GetWord(0xffff))
 		t.FailNow()
 	}
-	// stop the program for 1000 steps, or until it hits the instruction 0x7DC1 PC
+	if t.Failed() {
+		if err := state.Stop(); err != nil {
+			t.Fatal(err)
+		}
+		t.FailNow()
+	}
+	// run the program for 1000 cycles, or until it hits the instruction 0x7DC1 PC
 	success := false
 	for i := 0; i < 1000; i++ {
-		if err := state.Step(); err != nil {
+		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 		}
 		if state.Ram.GetWord(state.PC()) == 0x7DC1 && state.Ram.GetWord(state.PC()+1) == state.PC() {
@@ -162,12 +177,16 @@ func TestNotchSpecExample(t *testing.T) {
 	}
 	if !success {
 		// we exhausted our steps
-		t.Error("Program exceeded 1000 steps")
+		t.Error("Program exceeded 1000 cycles")
 	}
 
 	// Check register X, it should be 0x40
 	if state.X() != 0x40 {
 		t.Error("Unexpected value for register X; expected %#x, found %#x", 0x40, state.X())
+	}
+
+	if err := state.Stop(); err != nil {
+		t.Fatal(err)
 	}
 }
 

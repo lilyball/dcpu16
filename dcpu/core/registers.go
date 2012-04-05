@@ -1,4 +1,4 @@
-package dcpu
+package core
 
 const (
 	registerA = iota
