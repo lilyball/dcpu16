@@ -196,3 +196,52 @@ var notchSpecExampleProgram = [...]Word{
 	0x806d, 0x7dc1, 0x000d, 0x9031, 0x7c10, 0x0018, 0x7dc1, 0x001a,
 	0x9037, 0x61c1, 0x7dc1, 0x001a, 0x0000, 0x0000, 0x0000, 0x0000,
 }
+
+func TestMemoryMappedIO(t *testing.T) {
+	state := new(State)
+	if err := state.LoadProgram(notchAssemblerTestProgram[:], 0); err != nil {
+		t.Fatal(err)
+	}
+	// set up the mappings
+	buffer := [0x400]Word{}
+	get := func(address Word) Word {
+		return buffer[address]
+	}
+	set := func(address, val Word) error {
+		buffer[address] = val
+		return nil
+	}
+	if err := state.Ram.MapRegion(0x8000, 0x400, get, set); err != nil {
+		t.Fatal(err)
+	}
+	// start
+	if err := state.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// run the program for up to 1000 cycles, or until it hits opcode 0x85C3
+	for i := 0; i < 1000; i++ {
+		if err := state.StepCycle(); err != nil {
+			t.Fatal(err)
+		}
+		if state.Ram.GetWord(state.PC()) == 0x85C3 { // sub PC, 1
+			break
+		}
+	}
+	expected := "Hello world!"
+	for i := 0; i < len(expected); i++ {
+		if buffer[i] != Word(expected[i]) {
+			t.Errorf("Unexpected output in video ram; expected %v, found %v", []byte(expected), buffer[:len(expected)])
+			break
+		}
+	}
+	for i := len(expected); i < len(buffer); i++ {
+		w := buffer[i]
+		if w != 0 {
+			t.Errorf("Unexpected output in video ram at offset %#v; expected 0x0, found %#x", i, w)
+			break
+		}
+	}
+	if err := state.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -18,13 +18,24 @@ var ErrOutOfBounds = errors.New("out of bounds")
 type Memory struct {
 	ram       [0x10000]Word
 	protected []Region
+	mapped    []MMIORegion
 }
 
 func (m *Memory) GetWord(offset Word) Word {
+	for _, region := range m.mapped {
+		if region.Contains(offset) {
+			return region.get(offset-region.Start)
+		}
+	}
 	return m.ram[offset]
 }
 
 func (m *Memory) SetWord(offset, value Word) error {
+	for _, region := range m.mapped {
+		if region.Contains(offset) {
+			return region.set(offset-region.Start, value)
+		}
+	}
 	for _, region := range m.protected {
 		if region.Contains(offset) {
 			return &ProtectionError{offset}
@@ -68,6 +79,52 @@ func (r Region) Union(r2 Region) Region {
 		reg.Length = r.End() - reg.Start
 	}
 	return reg
+}
+
+type MMIORegion struct {
+	Region
+	get func(address Word) Word
+	set func(address, val Word) error
+}
+
+// MapRegion maps a region of memory to a pair of get/set functions.
+// Note: the functions may be executed on an internal goroutine.
+// If set returns an error, the machine is halted.
+// The address in both functions is relative to the start of the region.
+func (m *Memory) MapRegion(start, length Word, get func(address Word) Word, set func(address, val Word) error) error {
+	if int(start)+int(length) > len(m.ram) {
+		return ErrOutOfBounds
+	}
+	for _, region := range m.mapped {
+		if region.Contains(start) || region.Contains(length) {
+			return errors.New("MapRegion: this region conflicts with an existing mapped region")
+		} else if region.Start > start+length {
+			break
+		}
+	}
+	m.mapped = append(m.mapped, MMIORegion{
+		Region: Region{start, length},
+		get:    get,
+		set:    set,
+	})
+	return nil
+}
+
+// UnampRegion only unmaps if the region precisely matches an existing mapped region
+func (m *Memory) UnmapRegion(start, length Word) error {
+	if int(start)+int(length) > len(m.ram) {
+		return ErrOutOfBounds
+	}
+	for i, region := range m.mapped {
+		if region.Start == start && region.Length == length {
+			// this is the one
+			copy(m.mapped[i:], m.mapped[i+1:])
+			return nil
+		} else if region.Start > start {
+			break
+		}
+	}
+	return errors.New("UnmapRegion: no region matches the input")
 }
 
 // LoadProgram loads a program from the given slice into Ram at the given offset.
