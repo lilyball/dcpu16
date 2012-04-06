@@ -6,7 +6,7 @@ import (
 
 func TestLoadProgram(t *testing.T) {
 	state := new(State)
-	if err := state.LoadProgram(notchAssemblerTestProgram[:], 0, true); err != nil {
+	if err := state.LoadProgram(notchAssemblerTestProgram[:], 0); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < len(notchAssemblerTestProgram); i++ {
@@ -19,7 +19,7 @@ func TestLoadProgram(t *testing.T) {
 
 func TestNotchAssemblerTest(t *testing.T) {
 	state := new(State)
-	if err := state.LoadProgram(notchAssemblerTestProgram[:], 0, true); err != nil {
+	if err := state.LoadProgram(notchAssemblerTestProgram[:], 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.Start(); err != nil {
@@ -96,7 +96,7 @@ var notchAssemblerTestProgram = [...]Word{
 
 func TestNotchSpecExample(t *testing.T) {
 	state := new(State)
-	if err := state.LoadProgram(notchSpecExampleProgram[:], 0, true); err != nil {
+	if err := state.LoadProgram(notchSpecExampleProgram[:], 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.Start(); err != nil {

@@ -72,13 +72,12 @@ func (r Region) Union(r2 Region) Region {
 
 // LoadProgram loads a program from the given slice into Ram at the given offset.
 // Returns ErrOutOfBounds if the program exceeds the bounds of Ram.
-// Optionally protects the region.
-func (s *State) LoadProgram(input []Word, offset Word, protected bool) error {
+func (s *State) LoadProgram(input []Word, offset Word) error {
 	if len(input)+int(offset) > len(s.Ram.ram) {
 		return ErrOutOfBounds
 	}
 	copy(s.Ram.ram[offset:], input)
-	return s.MemProtect(offset, Word(len(input)), protected)
+	return nil
 }
 
 // MemProtect marks a region of memory as protected (or unprotected).
