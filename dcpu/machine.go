@@ -13,6 +13,8 @@ type Machine struct {
 	stopped <-chan error
 }
 
+const DefaultClockRate = time.Microsecond / 10
+
 // Start boots up the machine, with a clock rate of 1 / period
 // 10MHz would be expressed as (Microsecond / 10)
 func (m *Machine) Start(period time.Duration) error {
