@@ -23,7 +23,7 @@ func (err *MachineError) Error() string {
 	return fmt.Sprintf("machine error occurred; PC: %#x (%v)", err.PC, err.UnderlyingError)
 }
 
-const DefaultClockRate = time.Microsecond / 10
+const DefaultClockRate = time.Microsecond * 10
 
 // Start boots up the machine, with a clock rate of 1 / period
 // 10MHz would be expressed as (Microsecond / 10)
