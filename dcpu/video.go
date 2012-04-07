@@ -1,7 +1,7 @@
 package dcpu
 
 import (
-	"./core"
+	"github.com/kballard/dcpu16.go/dcpu/core"
 	"errors"
 	"github.com/nsf/termbox-go"
 )

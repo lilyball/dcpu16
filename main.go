@@ -1,8 +1,8 @@
 package main
 
 import (
-	"./dcpu"
-	"./dcpu/core"
+	"github.com/kballard/dcpu16.go/dcpu"
+	"github.com/kballard/dcpu16.go/dcpu/core"
 	"fmt"
 	"github.com/nsf/termbox-go"
 	"io/ioutil"
