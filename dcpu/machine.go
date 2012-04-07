@@ -1,17 +1,19 @@
 package dcpu
 
 import (
-	"github.com/kballard/dcpu16/dcpu/core"
 	"errors"
 	"fmt"
+	"github.com/kballard/dcpu16/dcpu/core"
 	"time"
 )
 
 type Machine struct {
-	State   core.State
-	Video   Video
-	stopper chan<- struct{}
-	stopped <-chan error
+	State      core.State
+	Video      Video
+	stopper    chan<- struct{}
+	stopped    <-chan error
+	cycleCount uint
+	startTime  time.Time
 }
 
 type MachineError struct {
@@ -42,6 +44,8 @@ func (m *Machine) Start(period time.Duration) error {
 	m.stopper = stopper
 	stopped := make(chan error, 1)
 	m.stopped = stopped
+	m.cycleCount = 0
+	m.startTime = time.Now()
 	go func() {
 		ticker := time.NewTicker(period)
 		scanrate := time.NewTicker(time.Second / 60) // 60Hz
@@ -56,6 +60,7 @@ func (m *Machine) Start(period time.Duration) error {
 					stoperr = &MachineError{err, m.State.PC()}
 					break loop
 				}
+				m.cycleCount++
 				m.Video.HandleChanges()
 			case _ = <-stopper:
 				break loop
@@ -82,6 +87,14 @@ func (m *Machine) Stop() error {
 	m.stopper = nil
 	m.stopped = nil
 	return err
+}
+
+// EffectiveClockRate returns the current observed rate that the machine
+// is running at, as an average since the last Start()
+func (m *Machine) EffectiveClockRate() uint {
+	duration := time.Since(m.startTime)
+	cycles := m.cycleCount
+	return uint(float64(cycles) / duration.Seconds())
 }
 
 // If the machine has already halted due to an error, that error is returned.

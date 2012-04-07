@@ -1,9 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"github.com/kballard/dcpu16/dcpu"
 	"github.com/kballard/dcpu16/dcpu/core"
-	"fmt"
 	"github.com/nsf/termbox-go"
 	"io/ioutil"
 	"os"
