@@ -24,7 +24,7 @@ type Memory struct {
 func (m *Memory) GetWord(offset Word) Word {
 	for _, region := range m.mapped {
 		if region.Contains(offset) {
-			return region.get(offset-region.Start)
+			return region.get(offset - region.Start)
 		}
 	}
 	return m.ram[offset]
@@ -88,7 +88,6 @@ type MMIORegion struct {
 }
 
 // MapRegion maps a region of memory to a pair of get/set functions.
-// Note: the functions may be executed on an internal goroutine.
 // If set returns an error, the machine is halted.
 // The address in both functions is relative to the start of the region.
 func (m *Memory) MapRegion(start, length Word, get func(address Word) Word, set func(address, val Word) error) error {

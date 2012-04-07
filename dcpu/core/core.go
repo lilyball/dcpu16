@@ -1,7 +1,6 @@
 package core
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -17,72 +16,381 @@ func (err *OpcodeError) Error() string {
 
 type State struct {
 	Registers
-	Ram  Memory
-	step func(bool) error
+	Ram        Memory
+	lastError  error // once set, will be returned always
+	tasks      []task
+	a, b, op   Word
+	cycleCount int // cycle count for op
+	assign     assignable
 }
 
-type asyncState struct {
-	*State
-	stepper chan struct{}
-	signal  chan error
+const maxOperandTasks = 3
+
+type task struct {
+	taskType   int
+	cycleCost  int // extra cycle cost for this task
+	value      int
+	result     *Word
+	markAssign bool
 }
 
-func (s *State) Start() error {
-	if s.step != nil {
-		return errors.New("State has already started")
-	}
-	async := asyncState{
-		State:   s,
-		stepper: make(chan struct{}),
-		signal:  make(chan error),
-	}
-	go func() {
-		for {
-			if err := async.stepInstruction(); err != nil {
-				async.signal <- err
-				break
-			}
-		}
-		close(async.signal)
-	}()
-	var lastError error
-	s.step = func(done bool) error {
-		if done {
-			// if we have an error, the async machine has already stopped
-			if lastError == nil {
-				close(async.stepper)
-				<-async.signal
-			}
-			return nil
-		}
-		if lastError != nil {
-			return lastError
-		}
-		async.stepper <- struct{}{}
-		lastError = <-async.signal
-		return lastError
-	}
-	// stepInstruction will send out one signal when it's ready.
-	// We don't care about waiting until it's ready, but we need to eat that
-	// first signal.
-	<-async.signal
-	return nil
-}
+const (
+	taskTypeNone     = iota
+	taskTypeFetch    // ignores value, fetches current *result
+	taskTypeRegister // adds register (value) to *result
+	taskTypeNextWord // fetches the next word into *result and increments PC
+	taskTypePushPop  // increments/decrements SP by value, ignores result
+)
 
 func (s *State) StepCycle() error {
-	if s.step == nil {
-		return errors.New("State has not started")
+	if s.lastError != nil {
+		return s.lastError
 	}
-	return s.step(false)
+	// check if our task list is populated
+	if len(s.tasks) == 0 {
+		if err := s.constructTaskList(); err != nil {
+			s.lastError = err
+			return err
+		}
+	}
+	// process our tasks
+	for i := 0; i < len(s.tasks); i++ {
+		task := &s.tasks[i]
+		if task.cycleCost > 0 {
+			task.cycleCost--
+			return nil
+		}
+		switch task.taskType {
+		case taskTypeNone:
+			continue
+		case taskTypeFetch:
+			if task.markAssign {
+				s.assign = assignable{
+					valueType: assignableTypeMemory,
+					index:     *task.result,
+				}
+			}
+			*task.result = s.Ram.GetWord(*task.result)
+		case taskTypeRegister:
+			if task.markAssign {
+				s.assign = assignable{
+					valueType: assignableTypeRegister,
+					index:     Word(task.value),
+				}
+			}
+			*task.result += s.Registers[task.value]
+		case taskTypeNextWord:
+			// this can't mark assign
+			*task.result = s.nextWord()
+		case taskTypePushPop:
+			if task.value > 0 {
+				s.SetSP(s.SP() + Word(task.value))
+			} else {
+				s.SetSP(s.SP() - Word(-task.value))
+			}
+		default:
+			panic("unknown task type")
+		}
+		task.taskType = taskTypeNone
+	}
+	if s.cycleCount > 1 {
+		s.cycleCount--
+		return nil
+	}
+	// clear our tasks
+	s.tasks = s.tasks[:0]
+	// execute the operation
+	var val Word
+	switch s.op {
+	case opcodeSET:
+		// SET a, b - sets a to b
+		val = s.b
+	case opcodeADD:
+		// ADD a, b - sets a to a+b, sets O to 0x0001 if there's an overflow, 0x0 otherwise
+		result := uint32(s.a) + uint32(s.b)
+		val = Word(result & 0xFFFF)
+		s.SetO(Word(result >> 16))
+	case opcodeSUB:
+		// SUB a, b - sets a to a-b, sets O to 0xffff if there's an underflow, 0x0 otherwise
+		result := uint32(s.a) - uint32(s.b)
+		val = Word(result & 0xFFFF)
+		s.SetO(Word(result >> 16))
+	case opcodeMUL:
+		// MUL a, b - sets a to a*b, sets O to ((a*b)>>16)&0xffff
+		result := uint32(s.a) * uint32(s.b)
+		val = Word(result & 0xFFFF)
+		s.SetO(Word(result >> 16))
+	case opcodeDIV:
+		// DIV a, b - sets a to a/b, sets O to ((a<<16)/b)&0xffff. if b==0, sets a and O to 0 instead.
+		if s.b == 0 {
+			val = 0
+			s.SetO(0)
+		} else {
+			val = s.a / s.b
+			s.SetO(Word(((uint32(s.a) << 16) / uint32(s.b))))
+		}
+	case opcodeMOD:
+		// MOD a, b - sets a to a%b. if b==0, sets a to 0 instead.
+		if s.b == 0 {
+			val = 0
+		} else {
+			val = s.a % s.b
+		}
+	case opcodeSHL:
+		// SHL a, b - sets a to a<<b, sets O to ((a<<b)>>16)&0xffff
+		result := uint32(s.a) << uint32(s.b)
+		val = Word(result & 0xFFFF)
+		s.SetO(Word(result >> 16))
+	case opcodeSHR:
+		// SHR a, b - sets a to a>>b, sets O to ((a<<16)>>b)&0xffff
+		val = s.a >> s.b
+		s.SetO(Word(uint32(s.a)<<16) >> s.b)
+	case opcodeAND:
+		// AND a, b - sets a to a&b
+		val = s.a & s.b
+	case opcodeBOR:
+		// BOR a, b - sets a to a|b
+		val = s.a | s.b
+	case opcodeXOR:
+		// XOR a, b - sets a to a^b
+		val = s.a ^ s.b
+	case opcodeIFE:
+		// IFE a, b - performs next instruction only if a==b
+		if s.a != s.b {
+			s.skipInstruction()
+		}
+		s.assign = assignable{}
+	case opcodeIFN:
+		// IFN a, b - performs next instruction only if a!=b
+		if s.a == s.b {
+			s.skipInstruction()
+		}
+		s.assign = assignable{}
+	case opcodeIFG:
+		// IFG a, b - performs next instruction only if a>b
+		if s.a <= s.b {
+			s.skipInstruction()
+		}
+		s.assign = assignable{}
+	case opcodeIFB:
+		// IFB a, b - performs next instruction only if (a&b)!=0
+		if (s.a & s.b) == 0 {
+			s.skipInstruction()
+		}
+		s.assign = assignable{}
+	case opcodeExtJSR:
+		// JSR a - pushes the address of the next instruction to the stack, then sets PC to a
+		s.DecrSP()
+		s.Ram.SetWord(s.SP(), s.PC())
+		val = s.a
+		s.assign = assignable{assignableTypeRegister, registerPC}
+	default:
+		// unknown but in-bounds opcodes are detected in constructTaskList()
+		panic("Out of bounds opcode")
+	}
+
+	if _, err := s.writeAssignable(s.assign, val); err != nil {
+		s.lastError = err
+		return s.lastError
+	}
+	return nil
 }
 
-func (s *State) Stop() error {
-	if s.step == nil {
-		return errors.New("State is already stopped")
+func (s *State) constructTaskList() error {
+	// fill out our task list
+	if s.tasks == nil {
+		// push our task list up to the max cap immediately
+		s.tasks = make([]task, 0, maxOperandTasks*2)
+	} else {
+		s.tasks = s.tasks[:0]
 	}
-	s.step(true)
-	s.step = nil
+	opcode := s.nextWord()
+	op, a, b := decodeOpcode(opcode)
+	if op == 0 {
+		// non-basic opcode
+		op, a = 0x100+a, b
+	}
+	s.op = op
+	s.a = 0
+	s.b = 0
+	for i := 0; i < 2; i++ {
+		var val Word
+		var result *Word
+		var assign bool
+		if i == 0 {
+			val = a
+			result = &s.a
+			assign = true
+		} else if op >= 0x100 {
+			// this is an extended opcode. They don't have bbbbbb
+			break
+		} else {
+			val = b
+			result = &s.b
+		}
+		switch val {
+		case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07:
+			// register (A, B, C, X, Y, Z, I or J, in that order)
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeRegister,
+				value:      int(val),
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f:
+			// [register]
+			s.tasks = append(s.tasks, task{
+				taskType: taskTypeRegister,
+				value:    int(val - 0x08),
+				result:   result,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeFetch,
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17:
+			// [next word + register]
+			s.tasks = append(s.tasks, task{
+				taskType:  taskTypeNextWord,
+				cycleCost: 1,
+				result:    result,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType: taskTypeRegister,
+				value:    int(val - 0x10),
+				result:   result,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeFetch,
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x18:
+			// POP / [SP++]
+			s.tasks = append(s.tasks, task{
+				taskType: taskTypeRegister,
+				value:    registerSP,
+				result:   result,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeFetch,
+				result:     result,
+				markAssign: assign,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType: taskTypePushPop,
+				value:    1,
+			})
+		case 0x19:
+			// PEEK / [SP]
+			s.tasks = append(s.tasks, task{
+				taskType: taskTypeRegister,
+				value:    registerSP,
+				result:   result,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeFetch,
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x1a:
+			// PUSH / [--SP]
+			s.tasks = append(s.tasks, task{
+				taskType: taskTypePushPop,
+				value:    -1,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType: taskTypeRegister,
+				value:    registerSP,
+				result:   result,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeFetch,
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x1b:
+			// SP
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeRegister,
+				value:      registerSP,
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x1c:
+			// PC
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeRegister,
+				value:      registerPC,
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x1d:
+			// O
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeRegister,
+				value:      registerO,
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x1e:
+			// [next word]
+			s.tasks = append(s.tasks, task{
+				taskType:  taskTypeNextWord,
+				cycleCost: 1,
+				result:    result,
+			})
+			s.tasks = append(s.tasks, task{
+				taskType:   taskTypeFetch,
+				result:     result,
+				markAssign: assign,
+			})
+		case 0x1f:
+			// next word (literal)
+			s.tasks = append(s.tasks, task{
+				taskType:  taskTypeNextWord,
+				cycleCost: 1,
+				result:    result,
+			})
+		default:
+			if val <= 0x3f {
+				*result = val - 0x20
+			} else {
+				panic("Out of bounds operand")
+			}
+		}
+	}
+	switch s.op {
+	case opcodeSET, opcodeAND, opcodeBOR, opcodeXOR:
+		s.cycleCount = 1
+	case opcodeADD, opcodeSUB, opcodeMUL, opcodeSHR, opcodeSHL:
+		s.cycleCount = 2
+	case opcodeDIV, opcodeMOD:
+		s.cycleCount = 3
+	case opcodeIFE, opcodeIFN, opcodeIFG, opcodeIFB:
+		s.cycleCount = 2
+	case opcodeExtJSR:
+		s.cycleCount = 2
+	default:
+		return &OpcodeError{opcode}
+	}
 	return nil
+}
+
+// constructs a new task list for SET PC, a
+func (s *State) skipInstruction() {
+	s.tasks = s.tasks[:0]
+	s.tasks = append(s.tasks, task{
+		taskType:   taskTypeRegister,
+		value:      registerPC,
+		result:     &s.a,
+		markAssign: true,
+	})
+	opcode := s.Ram.GetWord(s.PC())
+	s.b = s.PC() + wordCount(opcode)
+	s.op = opcodeSET
+	s.cycleCount = 1
 }
 
 func decodeOpcode(opcode Word) (oooo, aaaaaa, bbbbbb Word) {
@@ -122,24 +430,47 @@ type assignable struct {
 	index     Word
 }
 
-var errStopped = errors.New("stopped")
-
-func (s *asyncState) readAssignable(assignable assignable) (result Word, ok bool) {
-	switch assignable.valueType {
+func (a assignable) String() string {
+	switch a.valueType {
+	case assignableTypeNone:
+		return "(literal)"
 	case assignableTypeRegister:
-		result = s.Registers[assignable.index]
-		ok = true
+		switch a.index {
+		case registerA:
+			return "A"
+		case registerB:
+			return "B"
+		case registerC:
+			return "C"
+		case registerX:
+			return "X"
+		case registerY:
+			return "Y"
+		case registerZ:
+			return "Z"
+		case registerI:
+			return "I"
+		case registerJ:
+			return "J"
+		case registerSP:
+			return "SP"
+		case registerPC:
+			return "PC"
+		case registerO:
+			return "O"
+		default:
+			return "(unknown register)"
+		}
 	case assignableTypeMemory:
-		result = s.Ram.GetWord(assignable.index)
-		ok = true
+		return fmt.Sprintf("[%#04x]", a.index)
 	}
-	return
+	return "(unknown)"
 }
 
 // When writing to a non-assignable location, returns false, nil
 // When writing to a protected location, returns false, error
 // Otherwise returns true, nil
-func (s *asyncState) writeAssignable(assignable assignable, value Word) (bool, error) {
+func (s *State) writeAssignable(assignable assignable, value Word) (bool, error) {
 	switch assignable.valueType {
 	case assignableTypeRegister:
 		s.Registers[assignable.index] = value
@@ -153,281 +484,8 @@ func (s *asyncState) writeAssignable(assignable assignable, value Word) (bool, e
 	return false, nil
 }
 
-func (s *asyncState) waitCycle() bool {
-	s.signal <- nil
-	_, ok := <-s.stepper
-	return ok
-}
-
-func (s *asyncState) nextWord() (Word, bool) {
-	// pause for a cycle
-	if !s.waitCycle() {
-		return 0, false
-	}
+func (s *State) nextWord() Word {
 	word := s.Ram.GetWord(s.PC())
 	s.IncrPC()
-	return word, true
-}
-
-func (s *asyncState) skipInstruction() bool {
-	if !s.waitCycle() {
-		return false
-	}
-	s.SetPC(s.PC() + wordCount(s.Ram.GetWord(s.PC())))
-	return true
-}
-
-func (s *asyncState) translateOperand(op Word) (val Word, assign assignable, ok bool) {
-	ok = true
-	switch op {
-	case 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7:
-		// 0x00-0x07: register (A, B, C, X, Y, Z, I or J, in that order)
-		assign = assignable{assignableTypeRegister, op}
-	case 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf:
-		// 0x08-0x0f: [register]
-		assign = assignable{assignableTypeMemory, s.Registers[op-8]}
-	case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17:
-		// 0x10-0x17: [next word + register]
-		// note: takes 1 cycle
-		var w Word
-		if w, ok = s.nextWord(); !ok {
-			return
-		}
-		assign = assignable{assignableTypeMemory, w + s.Registers[op-16]}
-	case 0x18:
-		// 0x18: POP / [SP++]
-		assign = assignable{assignableTypeMemory, s.SP()}
-		s.IncrSP()
-	case 0x19:
-		// 0x19: PEEK / [SP]
-		assign = assignable{assignableTypeMemory, s.SP()}
-	case 0x1a:
-		// 0x1a: PUSH / [--SP]
-		s.DecrSP()
-		assign = assignable{assignableTypeMemory, s.SP()}
-	case 0x1b:
-		// 0x1b: SP
-		assign = assignable{assignableTypeRegister, registerSP}
-	case 0x1c:
-		// 0x1c: PC
-		assign = assignable{assignableTypeRegister, registerPC}
-	case 0x1d:
-		// 0x1d: O
-		assign = assignable{assignableTypeRegister, registerO}
-	case 0x1e:
-		// 0x1e: [next word]
-		// note: takes 1 cycle
-		var w Word
-		if w, ok = s.nextWord(); !ok {
-			return
-		}
-		assign = assignable{assignableTypeMemory, w}
-	case 0x1f:
-		// 0x1f: next word (literal)
-		// note: takes 1 cycle
-		var w Word
-		if w, ok = s.nextWord(); !ok {
-			return
-		}
-		val = w
-	default:
-		// 0x20-0x3f: literal value 0x00-0x1f (literal)
-		if op > 0x3f {
-			panic("Out of bounds operand")
-		}
-		val = op - 0x20
-	}
-	if assVal, ok := s.readAssignable(assign); ok {
-		val = assVal
-	}
-	return
-}
-
-func (s *asyncState) stepInstruction() error {
-	// fetch
-	opcode, ok := s.nextWord()
-	if !ok {
-		return errStopped
-	}
-
-	// decode
-	ins, a, b := decodeOpcode(opcode)
-
-	var assign assignable
-	if ins != 0 { // don't translate for the non-basic opcodes
-		if a, assign, ok = s.translateOperand(a); !ok {
-			return errStopped
-		}
-		if b, _, ok = s.translateOperand(b); !ok {
-			return errStopped
-		}
-	}
-
-	// execute
-	var val Word
-	switch ins {
-	case 0:
-		// non-basic opcodes
-		ins, a = a, b
-		switch ins {
-		case 1:
-			// JSR a - pushes the address of the next instruction to the stack, then sets PC to a
-			// 2 cycles
-			if !s.waitCycle() {
-				return errStopped
-			}
-			if _, assign, ok = s.translateOperand(0x1a); !ok { // PUSH
-				return errStopped
-			}
-			if a, _, ok = s.translateOperand(a); !ok {
-				return errStopped
-			}
-			s.writeAssignable(assign, s.PC())
-			s.SetPC(a)
-			assign = assignable{}
-		default:
-			return &OpcodeError{opcode}
-		}
-	case 1:
-		// SET a, b - sets a to b
-		// 1 cycle
-		val = b
-	case 2:
-		// ADD a, b - sets a to a+b, sets O to 0x0001 if there's an overflow, 0x0 otherwise
-		// 2 cycles
-		if !s.waitCycle() {
-			return errStopped
-		}
-		result := uint32(a) + uint32(b)
-		val = Word(result & 0xFFFF)
-		s.SetO(Word(result >> 16)) // will always be 0x0 or 0x1
-	case 3:
-		// SUB a, b - sets a to a-b, sets O to 0xffff if there's an underflow, 0x0 otherwise
-		// 2 cycles
-		if !s.waitCycle() {
-			return errStopped
-		}
-		result := uint32(a) - uint32(b)
-		val = Word(result & 0xFFFF)
-		s.SetO(Word(result >> 16)) // will always be 0x0 or 0xffff
-	case 4:
-		// MUL a, b - sets a to a*b, sets O to ((a*b)>>16)&0xffff
-		// 2 cycles
-		if !s.waitCycle() {
-			return errStopped
-		}
-		result := uint32(a) * uint32(b)
-		val = Word(result & 0xFFFF)
-		s.SetO(Word(result >> 16))
-	case 5:
-		// DIV a, b - sets a to a/b, sets O to ((a<<16)/b)&0xffff. if b==0, sets a and O to 0 instead.
-		// 3 cycles
-		if !s.waitCycle() || !s.waitCycle() {
-			return errStopped
-		}
-		if b == 0 {
-			val = 0
-			s.SetO(0)
-		} else {
-			val = a / b
-			s.SetO(Word(((uint32(a) << 16) / uint32(b))))
-		}
-	case 6:
-		// MOD a, b - sets a to a%b. if b==0, sets a to 0 instead.
-		// 3 cycles
-		if !s.waitCycle() || !s.waitCycle() {
-			return errStopped
-		}
-		if b == 0 {
-			val = 0
-		} else {
-			val = a % b
-		}
-	case 7:
-		// SHL a, b - sets a to a<<b, sets O to ((a<<b)>>16)&0xffff
-		// 2 cycles
-		if !s.waitCycle() {
-			return errStopped
-		}
-		result := uint32(a) << uint32(b)
-		val = Word(result & 0xFFFF)
-		s.SetO(Word(result >> 16))
-	case 8:
-		// SHR a, b - sets a to a>>b, sets O to ((a<<16)>>b)&0xffff
-		// 2 cycles
-		if !s.waitCycle() {
-			return errStopped
-		}
-		val = a >> b
-		s.SetO(Word((uint32(a) << 16) >> b))
-	case 9:
-		// AND a, b - sets a to a&b
-		// 1 cycle
-		val = a & b
-	case 10:
-		// BOR a, b - sets a to a|b
-		// 1 cycle
-		val = a | b
-	case 11:
-		// XOR a, b - sets a to a^b
-		// 1 cycle
-		val = a ^ b
-	case 12:
-		// IFE a, b - performs next instruction only if a==b
-		// 2 cycles +1
-		if !s.waitCycle() {
-			return errStopped
-		}
-		if a != b {
-			if !s.skipInstruction() {
-				return errStopped
-			}
-		}
-		assign = assignable{}
-	case 13:
-		// IFN a, b - performs next instruction only if a!=b
-		// 2 cycles +1
-		if !s.waitCycle() {
-			return errStopped
-		}
-		if a == b {
-			if !s.skipInstruction() {
-				return errStopped
-			}
-		}
-		assign = assignable{}
-	case 14:
-		// IFG a, b - performs next instruction only if a>b
-		// 2 cycles +1
-		if !s.waitCycle() {
-			return errStopped
-		}
-		if a <= b {
-			if !s.skipInstruction() {
-				return errStopped
-			}
-		}
-		assign = assignable{}
-	case 15:
-		// IFB a, b - performs next instruction only if (a&b)!=0
-		// 2 cycles +1
-		if !s.waitCycle() {
-			return errStopped
-		}
-		if (a & b) == 0 {
-			if !s.skipInstruction() {
-				return errStopped
-			}
-		}
-		assign = assignable{}
-	default:
-		panic("Out of bounds opcode")
-	}
-
-	// store
-	if _, err := s.writeAssignable(assign, val); err != nil {
-		return err
-	}
-
-	return nil
+	return word
 }

@@ -22,9 +22,6 @@ func TestNotchAssemblerTest(t *testing.T) {
 	if err := state.LoadProgram(notchAssemblerTestProgram[:], 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.Start(); err != nil {
-		t.Fatal(err)
-	}
 
 	// step the program for 1000 cycles, or until it hits the opcode 0x85C3
 	// hitting 1000 cycles is considered failure
@@ -49,9 +46,6 @@ func TestNotchAssemblerTest(t *testing.T) {
 			t.Errorf("Unexpected output in video ram; expected %v, found %v", []byte(expected), state.Ram.GetSlice(0x8000, 0x800B))
 			break
 		}
-	}
-	if err := state.Stop(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -99,15 +93,15 @@ func TestNotchSpecExample(t *testing.T) {
 	if err := state.LoadProgram(notchSpecExampleProgram[:], 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.Start(); err != nil {
-		t.Fatal(err)
-	}
 
 	// test the first section
 	for i := 0; i < 11; i++ {
 		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if len(state.tasks) != 0 {
+		t.Errorf("Unexpectedly stopped mid-instruction")
 	}
 	if state.A() != 0x10 {
 		t.Errorf("Unexpected value for register A; expected %#x, found %#x", 0x10, state.A())
@@ -121,8 +115,14 @@ func TestNotchSpecExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if len(state.tasks) != 0 {
+		t.Errorf("Unexpectedly stopped mid-instruction")
+	}
 	if state.I() != 7 {
 		t.Errorf("Unexpected value for register I; expected %#x, found %#x", 7, state.I())
+	}
+	if state.PC() != 16 {
+		t.Errorf("Unexpected value for register PC; expected %#x, found %#x", 16, state.PC())
 	}
 	// 59 more cycles (29 more instructions) to finish the loop
 	for i := 0; i < 59; i++ {
@@ -159,9 +159,6 @@ func TestNotchSpecExample(t *testing.T) {
 		t.FailNow()
 	}
 	if t.Failed() {
-		if err := state.Stop(); err != nil {
-			t.Fatal(err)
-		}
 		t.FailNow()
 	}
 	// run the program for 1000 cycles, or until it hits the instruction 0x7DC1 PC
@@ -183,10 +180,6 @@ func TestNotchSpecExample(t *testing.T) {
 	// Check register X, it should be 0x40
 	if state.X() != 0x40 {
 		t.Error("Unexpected value for register X; expected %#x, found %#x", 0x40, state.X())
-	}
-
-	if err := state.Stop(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -214,10 +207,6 @@ func TestMemoryMappedIO(t *testing.T) {
 	if err := state.Ram.MapRegion(0x8000, 0x400, get, set); err != nil {
 		t.Fatal(err)
 	}
-	// start
-	if err := state.Start(); err != nil {
-		t.Fatal(err)
-	}
 	// run the program for up to 1000 cycles, or until it hits opcode 0x85C3
 	for i := 0; i < 1000; i++ {
 		if err := state.StepCycle(); err != nil {
@@ -240,8 +229,5 @@ func TestMemoryMappedIO(t *testing.T) {
 			t.Errorf("Unexpected output in video ram at offset %#v; expected 0x0, found %#x", i, w)
 			break
 		}
-	}
-	if err := state.Stop(); err != nil {
-		t.Fatal(err)
 	}
 }

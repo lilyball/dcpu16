@@ -18,14 +18,13 @@ const DefaultClockRate = time.Microsecond / 10
 // Start boots up the machine, with a clock rate of 1 / period
 // 10MHz would be expressed as (Microsecond / 10)
 func (m *Machine) Start(period time.Duration) error {
+	if m.stopped != nil {
+		return errors.New("Machine has already started")
+	}
 	if err := m.Video.Init(); err != nil {
 		return err
 	}
 	if err := m.Video.MapToMachine(0x8000, m); err != nil {
-		m.Video.Close()
-		return err
-	}
-	if err := m.State.Start(); err != nil {
 		m.Video.Close()
 		return err
 	}
@@ -47,9 +46,7 @@ func (m *Machine) Start(period time.Duration) error {
 				}
 				m.Video.HandleChanges()
 			case _ = <-stopper:
-				if err := m.State.Stop(); err != nil {
-					stopped <- err
-				}
+				stopped <- nil
 				break
 			}
 		}
@@ -63,9 +60,10 @@ func (m *Machine) Start(period time.Duration) error {
 // Stop stops the machine. Returns an error if it's already stopped.
 // If the machine has halted due to an error, that error is returned.
 func (m *Machine) Stop() error {
-	if err := m.State.Stop(); err != nil {
-		return err
+	if m.stopped == nil {
+		return errors.New("Machine has not started")
 	}
+	m.stopper <- struct{}{}
 	err := <-m.stopped
 	m.Video.Close()
 	close(m.stopper)
@@ -83,7 +81,6 @@ func (m *Machine) HasError() error {
 	}
 	select {
 	case err := <-m.stopped:
-		m.State.Stop()
 		close(m.stopper)
 		m.stopper = nil
 		m.stopped = nil
