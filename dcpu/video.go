@@ -12,7 +12,7 @@ const (
 )
 
 type Video struct {
-	words    [0x400]core.Word
+	words     [0x400]core.Word
 	addresses <-chan core.Word
 }
 
@@ -52,7 +52,7 @@ func (v *Video) MapToMachine(offset core.Word, m *Machine) error {
 	if v.addresses != nil {
 		return errors.New("Video is already mapped to a machine")
 	}
-	addresses := make(chan core.Word)
+	addresses := make(chan core.Word, 1)
 	get := func(offset core.Word) core.Word {
 		return v.words[offset]
 	}

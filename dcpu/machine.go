@@ -3,6 +3,7 @@ package dcpu
 import (
 	"./core"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -11,6 +12,15 @@ type Machine struct {
 	Video   Video
 	stopper chan<- struct{}
 	stopped <-chan error
+}
+
+type MachineError struct {
+	UnderlyingError error
+	PC              core.Word
+}
+
+func (err *MachineError) Error() string {
+	return fmt.Sprintf("machine error occurred; PC: %#x (%v)", err.PC, err.UnderlyingError)
 }
 
 const DefaultClockRate = time.Microsecond / 10
@@ -28,30 +38,33 @@ func (m *Machine) Start(period time.Duration) error {
 		m.Video.Close()
 		return err
 	}
-	stopper := make(chan struct{})
+	stopper := make(chan struct{}, 1)
 	m.stopper = stopper
-	stopped := make(chan error)
+	stopped := make(chan error, 1)
 	m.stopped = stopped
 	go func() {
 		ticker := time.NewTicker(period)
 		scanrate := time.NewTicker(time.Second / 60) // 60Hz
+		var stoperr error
+	loop:
 		for {
 			select {
 			case _ = <-scanrate.C:
 				m.Video.Flush()
 			case _ = <-ticker.C:
 				if err := m.State.StepCycle(); err != nil {
-					stopped <- err
-					break
+					stoperr = &MachineError{err, m.State.PC()}
+					break loop
 				}
 				m.Video.HandleChanges()
 			case _ = <-stopper:
-				stopped <- nil
-				break
+				break loop
 			}
 		}
+		m.Video.Close()
 		ticker.Stop()
 		scanrate.Stop()
+		stopped <- stoperr
 		close(stopped)
 	}()
 	return nil
@@ -65,7 +78,6 @@ func (m *Machine) Stop() error {
 	}
 	m.stopper <- struct{}{}
 	err := <-m.stopped
-	m.Video.Close()
 	close(m.stopper)
 	m.stopper = nil
 	m.stopped = nil
