@@ -1,7 +1,7 @@
 package dcpu
 
 import (
-	"github.com/kballard/dcpu16.go/dcpu/core"
+	"github.com/kballard/dcpu16/dcpu/core"
 	"errors"
 	"fmt"
 	"time"
