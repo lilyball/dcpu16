@@ -10,8 +10,8 @@ func TestLoadProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < len(notchAssemblerTestProgram); i++ {
-		if state.Ram.GetWord(Word(i)) != notchAssemblerTestProgram[i] {
-			t.Errorf("Expected word %04x, found word %04x at offset %d", notchAssemblerTestProgram[i], state.Ram.GetWord(Word(i)), i)
+		if state.Ram.Load(Word(i)) != notchAssemblerTestProgram[i] {
+			t.Errorf("Expected word %04x, found word %04x at offset %d", notchAssemblerTestProgram[i], state.Ram.Load(Word(i)), i)
 			break
 		}
 	}
@@ -23,26 +23,42 @@ func TestNotchAssemblerTest(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Step the program twice, checking the PC each time
+	// We want to ensure the PC is incremented only by 1 each time, instead of incrementing
+	// by 2 on the first cycle
+	t.Logf("%#02x: %#04x", state.PC(), state.Ram.Load(state.PC()))
+	if err := state.StepCycle(); err != nil {
+		t.Fatal(err)
+	}
+	if state.PC() != 0x1 {
+		t.Errorf("Unexpected value for PC; expected %#02x, found %#02x", 0x1, state.PC())
+	}
+	t.Logf("%#02x: %#04x", state.PC(), state.Ram.Load(state.PC()))
+	if err := state.StepCycle(); err != nil {
+		t.Fatal(err)
+	}
+	if state.PC() != 0x2 {
+		t.Errorf("Unexpected value for PC; expected %#02x, found %#02x", 0x2, state.PC())
+	}
 	// step the program for 1000 cycles, or until it hits the opcode 0x85C3
 	// hitting 1000 cycles is considered failure
 	for i := 0; i < 1000; i++ {
-		t.Logf("%d: %04x", state.PC(), state.Ram.GetWord(state.PC()))
+		t.Logf("%#02x: %#04x", state.PC(), state.Ram.Load(state.PC()))
 		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
-			break
 		}
-		if state.Ram.GetWord(state.PC()) == 0x85C3 { // sub PC, 1
+		if state.Ram.Load(state.PC()) == 0x85C3 { // sub PC, 1
 			break
 		}
 	}
-	if state.Ram.GetWord(state.PC()) != 0x85C3 {
+	if state.Ram.Load(state.PC()) != 0x85C3 {
 		// we exhausted our steps
 		t.Error("Program exceeded 1000 cycles")
 	}
 	// check 0x8000 - 0x800B for "Hello world!"
 	expected := "Hello world!"
 	for i := 0; i < len(expected); i++ {
-		if state.Ram.GetWord(Word(0x8000+i)) != Word(expected[i]) {
+		if state.Ram.Load(Word(0x8000+i)) != Word(expected[i]) {
 			t.Errorf("Unexpected output in video ram; expected %v, found %v", []byte(expected), state.Ram.GetSlice(0x8000, 0x800B))
 			break
 		}
@@ -100,7 +116,7 @@ func TestNotchSpecExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(state.tasks) != 0 {
+	if state.step != stateStepFetch {
 		t.Errorf("Unexpectedly stopped mid-instruction")
 	}
 	if state.A() != 0x10 {
@@ -115,7 +131,7 @@ func TestNotchSpecExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(state.tasks) != 0 {
+	if state.step != stateStepFetch {
 		t.Errorf("Unexpectedly stopped mid-instruction")
 	}
 	if state.I() != 7 {
@@ -154,8 +170,8 @@ func TestNotchSpecExample(t *testing.T) {
 	if state.SP() != 0xffff {
 		t.Errorf("Unexpected value for register SP; expected %#x, found %#x", 0xffff, state.SP())
 	}
-	if state.Ram.GetWord(0xffff) != 22 {
-		t.Errorf("Unexpected value at 0xffff; expected %#x, found %#x", 22, state.Ram.GetWord(0xffff))
+	if state.Ram.Load(0xffff) != 22 {
+		t.Errorf("Unexpected value at 0xffff; expected %#x, found %#x", 22, state.Ram.Load(0xffff))
 		t.FailNow()
 	}
 	if t.Failed() {
@@ -167,7 +183,7 @@ func TestNotchSpecExample(t *testing.T) {
 		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 		}
-		if state.Ram.GetWord(state.PC()) == 0x7DC1 && state.Ram.GetWord(state.PC()+1) == state.PC() {
+		if state.Ram.Load(state.PC()) == 0x7DC1 && state.Ram.Load(state.PC()+1) == state.PC() {
 			success = true
 			break
 		}
@@ -212,7 +228,7 @@ func TestMemoryMappedIO(t *testing.T) {
 		if err := state.StepCycle(); err != nil {
 			t.Fatal(err)
 		}
-		if state.Ram.GetWord(state.PC()) == 0x85C3 { // sub PC, 1
+		if state.Ram.Load(state.PC()) == 0x85C3 { // sub PC, 1
 			break
 		}
 	}

@@ -21,7 +21,7 @@ type Memory struct {
 	mapped    []MMIORegion
 }
 
-func (m *Memory) GetWord(offset Word) Word {
+func (m *Memory) Load(offset Word) Word {
 	for _, region := range m.mapped {
 		if region.Contains(offset) {
 			return region.get(offset - region.Start)
@@ -30,7 +30,7 @@ func (m *Memory) GetWord(offset Word) Word {
 	return m.ram[offset]
 }
 
-func (m *Memory) SetWord(offset, value Word) error {
+func (m *Memory) Store(offset, value Word) error {
 	for _, region := range m.mapped {
 		if region.Contains(offset) {
 			return region.set(offset-region.Start, value)

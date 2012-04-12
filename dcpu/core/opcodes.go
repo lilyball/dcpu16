@@ -28,3 +28,4 @@ const (
 const (
 	opcodeExtJSR = 0x101
 )
+const opcodeExtendedOffset = 0x100
