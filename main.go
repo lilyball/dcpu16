@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/kballard/dcpu16/dcpu"
 	"github.com/kballard/dcpu16/dcpu/core"
-	"github.com/nsf/termbox-go"
+	"github.com/kballard/termbox-go"
 	"io/ioutil"
 	"os"
 )

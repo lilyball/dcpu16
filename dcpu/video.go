@@ -1,9 +1,9 @@
 package dcpu
 
 import (
-	"github.com/kballard/dcpu16/dcpu/core"
 	"errors"
-	"github.com/nsf/termbox-go"
+	"github.com/kballard/dcpu16/dcpu/core"
+	"github.com/kballard/termbox-go"
 )
 
 // For the moment, assume an 80 column terminal
