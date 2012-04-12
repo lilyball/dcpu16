@@ -97,6 +97,18 @@ func (m *Machine) EffectiveClockRate() uint {
 	return uint(float64(cycles) / duration.Seconds())
 }
 
+func ClockRateToString(rate uint) string {
+	suffix := "Hz"
+	if rate > 1e6 {
+		rate /= 1e6
+		suffix = "Mhz"
+	} else if rate > 1e3 {
+		rate /= 1e3
+		suffix = "Khz"
+	}
+	return fmt.Sprintf("%d%s", rate, suffix)
+}
+
 // If the machine has already halted due to an error, that error is returned.
 // Otherwise, nil is returned.
 // If the machine has not started, an error is returned.
