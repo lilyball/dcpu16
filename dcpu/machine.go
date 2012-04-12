@@ -66,7 +66,6 @@ func (m *Machine) Start(period time.Duration) error {
 				break loop
 			}
 		}
-		m.Video.Close()
 		ticker.Stop()
 		scanrate.Stop()
 		stopped <- stoperr
@@ -81,6 +80,7 @@ func (m *Machine) Stop() error {
 	if m.stopped == nil {
 		return errors.New("Machine has not started")
 	}
+	m.Video.Close()
 	m.stopper <- struct{}{}
 	err := <-m.stopped
 	close(m.stopper)
@@ -106,6 +106,7 @@ func (m *Machine) HasError() error {
 	}
 	select {
 	case err := <-m.stopped:
+		m.Video.Close()
 		close(m.stopper)
 		m.stopper = nil
 		m.stopped = nil
