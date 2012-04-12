@@ -40,6 +40,10 @@ func main() {
 	// now wait for the q key
 	for {
 		evt := termbox.PollEvent()
+		if err := machine.HasError(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		if evt.Type == termbox.EventKey {
 			if evt.Key == termbox.KeyCtrlC || (evt.Mod == 0 && evt.Ch == 'q') {
 				if err := machine.Stop(); err != nil {
