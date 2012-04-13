@@ -6,9 +6,17 @@ import (
 	"github.com/kballard/termbox-go"
 )
 
-// For the moment, assume an 80 column terminal
+// The display is 32x12 (128x96 pixels) surrounded by a
+// 16 pixel border / background.
+//
+// We can't handle pixels, so use a 32x12 character display, with a border
+// of one character.
 const (
-	windowWidth = 80
+	windowWidth            = 32
+	windowHeight           = 12
+	characterRangeStart    = 0x0180
+	miscRangeStart         = 0x0280
+	backgroundColorAddress = 0x0280
 )
 
 type Video struct {
@@ -17,7 +25,15 @@ type Video struct {
 }
 
 func (v *Video) Init() error {
-	return termbox.Init()
+	if err := termbox.Init(); err != nil {
+		return err
+	}
+	// Default the background to cyan, for the heck of it
+	v.words[0x0280] = 6
+
+	v.drawBorder()
+
+	return nil
 }
 
 func (v *Video) Close() {
@@ -31,20 +47,28 @@ func (v *Video) HandleChanges() {
 	default:
 		return
 	}
-	row := int(offset / windowWidth)
-	column := int(offset % windowWidth)
-
-	termWidth, termHeight := termbox.Size()
-	if row >= termHeight || column >= termWidth {
-		// this is offscreen, so do nothing
-		return
+	if offset < characterRangeStart {
+		row := int(offset / windowWidth)
+		column := int(offset % windowWidth)
+		v.updateCell(row, column, v.words[offset])
+	} else if offset < miscRangeStart {
+		// we can't handle font stuff with the terminal
+	} else if offset == backgroundColorAddress {
+		v.drawBorder()
 	}
-	ch := rune(v.words[offset] & 0x7F)
+}
+
+func (v *Video) updateCell(row, column int, word core.Word) {
+	// account for the border
+	row++
+	column++
+
+	ch := rune(word & 0x7F)
 	// color seems to be in the top 2 nibbles, MSB being FG and LSB are BG
 	// Within each nibble, from LSB to MSB, is blue, green, red, highlight
 	// Lastly, the bit at 0x80 is apparently blink.
-	flag := (v.words[offset] & 0x80) != 0
-	colors := byte((v.words[offset] & 0xFF00) >> 8)
+	flag := (word & 0x80) != 0
+	colors := byte((word & 0xFF00) >> 8)
 	fgNibble := (colors & 0xF0) >> 4
 	bgNibble := colors & 0x0F
 	colorToAttr := func(color byte) termbox.Attribute {
@@ -77,7 +101,26 @@ func (v *Video) HandleChanges() {
 		fg |= termbox.AttrBlink
 	}
 	termbox.SetCell(column, row, ch, fg, bg)
-	return
+}
+
+func (v *Video) drawBorder() {
+	// we have no good information on the background color lookup at the moment
+	// So instead just treat the low 3 bits as an ANSI color
+	// Take advantage of the fact that termbox colors are in the same order as ANSI colors
+	var color termbox.Attribute = termbox.Attribute(v.words[backgroundColorAddress] & 0x7) + termbox.ColorBlack
+
+	// draw top/bottom
+	for _, row := range [2]int{0, windowHeight + 1} {
+		for col := 0; col < windowWidth+2; col++ {
+			termbox.SetCell(col, row, ' ', termbox.ColorDefault, color)
+		}
+	}
+	// draw left/right
+	for _, col := range [2]int{0, windowWidth + 1} {
+		for row := 1; row < windowHeight+1; row++ {
+			termbox.SetCell(col, row, ' ', termbox.ColorDefault, color)
+		}
+	}
 }
 
 func (v *Video) Flush() {
