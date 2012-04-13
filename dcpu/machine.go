@@ -49,7 +49,21 @@ func (m *Machine) Start(rate ClockRate) error {
 	m.cycleCount = 0
 	m.startTime = time.Now()
 	go func() {
+		// we want an acurate cycle counter
+		// Unfortunately, time.NewTicker drops cycles on the floor if it can't keep up
+		// so we need to give ourselves a bit of a buffer. Hopefully 10 is enough
 		ticker := time.NewTicker(rate.ToDuration())
+		cycleChan := make(chan time.Time, 10)
+		go func() {
+			for {
+				if t, ok := <-ticker.C; ok {
+					cycleChan <- t
+				} else {
+					close(cycleChan)
+					break
+				}
+			}
+		}()
 		scanrate := time.NewTicker(time.Second / 60) // 60Hz
 		var stoperr error
 	loop:
@@ -57,7 +71,7 @@ func (m *Machine) Start(rate ClockRate) error {
 			select {
 			case _ = <-scanrate.C:
 				m.Video.Flush()
-			case _ = <-ticker.C:
+			case _ = <-cycleChan:
 				if err := m.State.StepCycle(); err != nil {
 					stoperr = &MachineError{err, m.State.PC()}
 					break loop
