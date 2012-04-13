@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/kballard/dcpu16/dcpu"
 	"github.com/kballard/dcpu16/dcpu/core"
@@ -9,12 +10,23 @@ import (
 	"os"
 )
 
+var requestedRate dcpu.ClockRate = dcpu.DefaultClockRate
+var printRate *bool = flag.Bool("printRate", false, "Print the effective clock rate at termination")
+
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s program\n", os.Args[0])
+	// command-line flags
+	flag.Var(&requestedRate, "rate", "Clock rate to run the machine at")
+	// update usage
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: %s [flags] program\n", os.Args[0])
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+	if flag.NArg() != 1 {
+		flag.Usage()
 		os.Exit(2)
 	}
-	program := os.Args[1]
+	program := flag.Arg(0)
 	data, err := ioutil.ReadFile(program)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -33,10 +45,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := machine.Start(dcpu.DefaultClockRate); err != nil {
+	if err := machine.Start(requestedRate); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	var effectiveRate dcpu.ClockRate
 	// now wait for the q key
 	for {
 		evt := termbox.PollEvent()
@@ -46,6 +59,7 @@ func main() {
 		}
 		if evt.Type == termbox.EventKey {
 			if evt.Key == termbox.KeyCtrlC || (evt.Mod == 0 && evt.Ch == 'q') {
+				effectiveRate = machine.EffectiveClockRate()
 				if err := machine.Stop(); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
@@ -53,5 +67,8 @@ func main() {
 				break
 			}
 		}
+	}
+	if *printRate {
+		fmt.Printf("Effective clock rate: %s\n", effectiveRate)
 	}
 }
