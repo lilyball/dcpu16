@@ -107,7 +107,7 @@ func (v *Video) drawBorder() {
 	// we have no good information on the background color lookup at the moment
 	// So instead just treat the low 3 bits as an ANSI color
 	// Take advantage of the fact that termbox colors are in the same order as ANSI colors
-	var color termbox.Attribute = termbox.Attribute(v.words[backgroundColorAddress] & 0x7) + termbox.ColorBlack
+	var color termbox.Attribute = termbox.Attribute(v.words[backgroundColorAddress]&0x7) + termbox.ColorBlack
 
 	// draw top/bottom
 	for _, row := range [2]int{0, windowHeight + 1} {
@@ -125,6 +125,24 @@ func (v *Video) drawBorder() {
 
 func (v *Video) Flush() {
 	termbox.Flush()
+}
+
+func (v *Video) UpdateStats(state *core.State, cycleCount uint) {
+	// draw stats below the display
+	// Cycles: ###########  PC: 0x####
+	// A: 0x####  B: 0x####  C: 0x####  I: 0x####
+	// X: 0x####  Y: 0x####  Z: 0x####  J: 0x####
+	// O: 0x#### SP: 0x####
+
+	row := windowHeight + 2 /* border */ + 1 /* spacing */
+	fg, bg := termbox.ColorDefault, termbox.ColorDefault
+	termbox.DrawStringf(1, row, fg, bg, "Cycles: %-11d  PC: %#04x", cycleCount, state.PC())
+	row++
+	termbox.DrawStringf(1, row, fg, bg, "A: %#04x  B: %#04X  C: %#04x  I: %#04x", state.A(), state.B(), state.C(), state.I())
+	row++
+	termbox.DrawStringf(1, row, fg, bg, "X: %#04x  Y: %#04x  Z: %#04x  J: %#04x", state.X(), state.Y(), state.Z(), state.J())
+	row++
+	termbox.DrawStringf(1, row, fg, bg, "O: %#04x SP: %#04x", state.O(), state.SP())
 }
 
 func (v *Video) MapToMachine(offset core.Word, m *Machine) error {

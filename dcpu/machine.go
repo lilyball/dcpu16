@@ -70,6 +70,7 @@ func (m *Machine) Start(rate ClockRate) error {
 		for {
 			select {
 			case _ = <-scanrate.C:
+				m.Video.UpdateStats(&m.State, m.cycleCount)
 				m.Video.Flush()
 			case _ = <-cycleChan:
 				if err := m.State.StepCycle(); err != nil {
