@@ -58,6 +58,10 @@ func (v *Video) updateCell(row, column int, word core.Word) {
 	column++
 
 	ch := rune(word & 0x7F)
+	if ch == 0 {
+		// replace 0000 with space
+		ch = 0x20
+	}
 	// color seems to be in the top 2 nibbles, MSB being FG and LSB are BG
 	// Within each nibble, from LSB to MSB, is blue, green, red, highlight
 	// Lastly, the bit at 0x80 is apparently blink.
