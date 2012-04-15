@@ -4,6 +4,8 @@ import (
 	"errors"
 	"github.com/kballard/dcpu16/dcpu/core"
 	"github.com/kballard/termbox-go"
+	"os"
+	"strings"
 )
 
 // The display is 32x12 (128x96 pixels) surrounded by a
@@ -19,6 +21,24 @@ const (
 	backgroundColorAddress = 0x0280
 )
 
+var supportsXterm256 bool
+
+// colorToAnsi maps the 4-bit DCPU-16 colors to xterm-256 colors
+// We can't do an exat match, but we can get pretty close.
+// 0x55 becomes 0x66
+// 0xAA becomes 0x99
+// 0xFF is left as-is
+// Note: color spec says +red, +green, -highlight puts the green channel
+// at 0xFF instead of 0xAA. After reading comments on the 0x10cwiki, this
+// is likely a bug, it should probably be dropped to 0x55. Also note that
+// this only holds if blue is off.
+var colorToAnsi [16]byte = [...]byte{
+	/* 0000 */ 16 /* 0001 */, 19 /* 0010 */, 34 /* 0011 */, 37,
+	/* 0100 */ 124 /* 0101 */, 127 /* 0110 */, 136 /* 0111 */, 145,
+	/* 1000 */ 102 /* 1001 */, 105 /* 1010 */, 120 /* 1011 */, 123,
+	/* 1100 */ 210 /* 1101 */, 213 /* 1110 */, 228 /* 1111 */, 231,
+}
+
 type Video struct {
 	words  [0x400]core.Word
 	mapped bool
@@ -29,7 +49,7 @@ func (v *Video) Init() error {
 		return err
 	}
 	// Default the background to cyan, for the heck of it
-	v.words[0x0280] = 6
+	v.words[0x0280] = 3
 
 	v.drawBorder()
 
@@ -64,13 +84,30 @@ func (v *Video) updateCell(row, column int, word core.Word) {
 	}
 	// color seems to be in the top 2 nibbles, MSB being FG and LSB are BG
 	// Within each nibble, from LSB to MSB, is blue, green, red, highlight
-	// Lastly, the bit at 0x80 is apparently blink.
+	// Lastly, the bit at 0x80 is blink.
 	flag := (word & 0x80) != 0
 	colors := byte((word & 0xFF00) >> 8)
 	fgNibble := (colors & 0xF0) >> 4
 	bgNibble := colors & 0x0F
-	colorToAttr := func(color byte) termbox.Attribute {
-		attr := termbox.ColorDefault
+	fg, bg := colorToAttr(fgNibble), colorToAttr(bgNibble)
+	if flag {
+		fg |= termbox.AttrBlink
+	}
+	termbox.SetCell(column, row, ch, fg, bg)
+}
+
+func colorToAttr(color byte) termbox.Attribute {
+	var attr termbox.Attribute
+	if supportsXterm256 {
+		// We need to use xterm-256 colors to work properly here.
+		// Luckily, we built a table!
+		attr = termbox.ColorXterm256
+		ansi := colorToAnsi[color]
+		attr |= termbox.Attribute(ansi) << termbox.XtermColorShift
+	} else {
+		// We don't seem to support xterm-256 colors, so fall back on
+		// trying to use the normal ANSI colors
+		attr = termbox.ColorDefault
 		// bold
 		if color&0x8 != 0 {
 			attr |= termbox.AttrBold
@@ -94,29 +131,25 @@ func (v *Video) updateCell(row, column int, word core.Word) {
 		attr |= ansi + termbox.ColorBlack
 		return attr
 	}
-	fg, bg := colorToAttr(fgNibble), colorToAttr(bgNibble)
-	if flag {
-		fg |= termbox.AttrBlink
-	}
-	termbox.SetCell(column, row, ch, fg, bg)
+	return attr
 }
 
 func (v *Video) drawBorder() {
 	// we have no good information on the background color lookup at the moment
-	// So instead just treat the low 3 bits as an ANSI color
-	// Take advantage of the fact that termbox colors are in the same order as ANSI colors
-	var color termbox.Attribute = termbox.Attribute(v.words[backgroundColorAddress]&0x7) + termbox.ColorBlack
+	// So instead just treat the low 4 bits
+	color := byte(v.words[backgroundColorAddress] & 0xf)
+	attr := colorToAttr(color)
 
 	// draw top/bottom
 	for _, row := range [2]int{0, windowHeight + 1} {
 		for col := 0; col < windowWidth+2; col++ {
-			termbox.SetCell(col, row, ' ', termbox.ColorDefault, color)
+			termbox.SetCell(col, row, ' ', termbox.ColorDefault, attr)
 		}
 	}
 	// draw left/right
 	for _, col := range [2]int{0, windowWidth + 1} {
 		for row := 1; row < windowHeight+1; row++ {
-			termbox.SetCell(col, row, ' ', termbox.ColorDefault, color)
+			termbox.SetCell(col, row, ' ', termbox.ColorDefault, attr)
 		}
 	}
 }
@@ -171,4 +204,10 @@ func (v *Video) UnmapFromMachine(offset core.Word, m *Machine) error {
 	}
 	v.mapped = false
 	return nil
+}
+
+// test for xterm-256 color support
+func init() {
+	// Check $TERM for the -256color suffix
+	supportsXterm256 = strings.HasSuffix(os.ExpandEnv("$TERM"), "-256color")
 }
