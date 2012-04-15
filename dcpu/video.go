@@ -20,8 +20,8 @@ const (
 )
 
 type Video struct {
-	words     [0x400]core.Word
-	addresses <-chan core.Word
+	words  [0x400]core.Word
+	mapped bool
 }
 
 func (v *Video) Init() error {
@@ -40,13 +40,7 @@ func (v *Video) Close() {
 	termbox.Close()
 }
 
-func (v *Video) HandleChanges() {
-	var offset core.Word
-	select {
-	case offset = <-v.addresses:
-	default:
-		return
-	}
+func (v *Video) handleChange(offset core.Word) {
 	if offset < characterRangeStart {
 		row := int(offset / windowWidth)
 		column := int(offset % windowWidth)
@@ -146,29 +140,31 @@ func (v *Video) UpdateStats(state *core.State, cycleCount uint) {
 }
 
 func (v *Video) MapToMachine(offset core.Word, m *Machine) error {
-	if v.addresses != nil {
+	if v.mapped {
 		return errors.New("Video is already mapped to a machine")
 	}
-	addresses := make(chan core.Word, 1)
 	get := func(offset core.Word) core.Word {
 		return v.words[offset]
 	}
 	set := func(offset, val core.Word) error {
 		v.words[offset] = val
-		addresses <- offset
+		v.handleChange(offset)
 		return nil
 	}
-	v.addresses = addresses
-	return m.State.Ram.MapRegion(offset, core.Word(len(v.words)), get, set)
+	if err := m.State.Ram.MapRegion(offset, core.Word(len(v.words)), get, set); err != nil {
+		return err
+	}
+	v.mapped = true
+	return nil
 }
 
 func (v *Video) UnmapFromMachine(offset core.Word, m *Machine) error {
-	if v.addresses == nil {
+	if !v.mapped {
 		return errors.New("Video is not mapped to a machine")
 	}
 	if err := m.State.Ram.UnmapRegion(offset, core.Word(len(v.words))); err != nil {
 		return err
 	}
-	v.addresses = nil
+	v.mapped = false
 	return nil
 }
