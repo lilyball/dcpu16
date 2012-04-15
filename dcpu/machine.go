@@ -12,6 +12,7 @@ import (
 type Machine struct {
 	State      core.State
 	Video      Video
+	Keyboard   Keyboard
 	stopper    chan<- struct{}
 	stopped    <-chan error
 	cycleCount uint
@@ -31,16 +32,23 @@ const DefaultClockRate ClockRate = 100000 // 100KHz
 
 // Start boots up the machine, with a clock rate of 1 / period
 // 10MHz would be expressed as (Microsecond / 10)
-func (m *Machine) Start(rate ClockRate) error {
+func (m *Machine) Start(rate ClockRate) (err error) {
 	if m.stopped != nil {
 		return errors.New("Machine has already started")
 	}
-	if err := m.Video.Init(); err != nil {
-		return err
+	if err = m.Video.Init(); err != nil {
+		return
 	}
-	if err := m.Video.MapToMachine(0x8000, m); err != nil {
-		m.Video.Close()
-		return err
+	defer func() {
+		if err != nil {
+			m.Video.Close()
+		}
+	}()
+	if err = m.Video.MapToMachine(0x8000, m); err != nil {
+		return
+	}
+	if err = m.Keyboard.MapToMachine(0x9000, m); err != nil {
+		return
 	}
 	stopper := make(chan struct{}, 1)
 	m.stopper = stopper
@@ -78,7 +86,7 @@ func (m *Machine) Start(rate ClockRate) error {
 					break loop
 				}
 				m.cycleCount++
-				m.Video.HandleChanges()
+				m.Keyboard.PollKeys()
 			case _ = <-stopper:
 				break loop
 			}
@@ -98,6 +106,8 @@ func (m *Machine) Stop() error {
 		return errors.New("Machine has not started")
 	}
 	m.Video.Close()
+	m.Video.UnmapFromMachine(0x8000, m)
+	m.Keyboard.UnmapFromMachine(0x9000, m)
 	m.stopper <- struct{}{}
 	err := <-m.stopped
 	close(m.stopper)

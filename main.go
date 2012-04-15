@@ -50,7 +50,7 @@ func main() {
 		os.Exit(1)
 	}
 	var effectiveRate dcpu.ClockRate
-	// now wait for the q key
+	// now wait for the ^C key
 	for {
 		evt := termbox.PollEvent()
 		if err := machine.HasError(); err != nil {
@@ -58,13 +58,25 @@ func main() {
 			os.Exit(1)
 		}
 		if evt.Type == termbox.EventKey {
-			if evt.Key == termbox.KeyCtrlC || (evt.Mod == 0 && evt.Ch == 'q') {
+			if evt.Key == termbox.KeyCtrlC {
 				effectiveRate = machine.EffectiveClockRate()
 				if err := machine.Stop(); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
 				}
 				break
+			}
+			// else pass it to the keyboard
+			if evt.Ch == 0 {
+				// it's a key constant
+				// We need to fold Backspace2 down into Backspace
+				key := evt.Key
+				if key == termbox.KeyBackspace2 {
+					key = termbox.KeyBackspace
+				}
+				machine.Keyboard.RegisterKey(rune(key))
+			} else {
+				machine.Keyboard.RegisterKey(evt.Ch)
 			}
 		}
 	}
