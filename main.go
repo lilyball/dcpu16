@@ -12,10 +12,12 @@ import (
 
 var requestedRate dcpu.ClockRate = dcpu.DefaultClockRate
 var printRate *bool = flag.Bool("printRate", false, "Print the effective clock rate at termination")
+var screenRefreshRate dcpu.ClockRate = dcpu.DefaultScreenRefreshRate
 
 func main() {
 	// command-line flags
 	flag.Var(&requestedRate, "rate", "Clock rate to run the machine at")
+	flag.Var(&screenRefreshRate, "screenRefreshRate", "Clock rate to refresh the screen at")
 	// update usage
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s [flags] program\n", os.Args[0])
@@ -41,6 +43,7 @@ func main() {
 
 	// Set up a machine
 	machine := new(dcpu.Machine)
+	machine.Video.RefreshRate = screenRefreshRate
 	if err := machine.State.LoadProgram(words, 0); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

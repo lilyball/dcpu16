@@ -63,7 +63,11 @@ func (m *Machine) Start(rate ClockRate) (err error) {
 		// So lets instead switch to running as many cycles as we need before using any
 		// timed delays
 		cycleChan := make(chan time.Time, 1)
-		scanrate := time.NewTicker(time.Second / 60) // 60Hz
+		refreshRate := m.Video.RefreshRate
+		if refreshRate == 0 {
+			refreshRate = DefaultScreenRefreshRate
+		}
+		scanrate := time.NewTicker(refreshRate.ToDuration())
 		var stoperr error
 		nextTime := time.Now()
 		period := rate.ToDuration()

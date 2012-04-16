@@ -21,6 +21,8 @@ const (
 	backgroundColorAddress = 0x0280
 )
 
+const DefaultScreenRefreshRate ClockRate = 60 // 60Hz
+
 var supportsXterm256 bool
 
 // colorToAnsi maps the 4-bit DCPU-16 colors to xterm-256 colors
@@ -40,8 +42,9 @@ var colorToAnsi [16]byte = [...]byte{
 }
 
 type Video struct {
-	words  [0x400]core.Word
-	mapped bool
+	RefreshRate ClockRate // the refresh rate of the screen
+	words       [0x400]core.Word
+	mapped      bool
 }
 
 func (v *Video) Init() error {
