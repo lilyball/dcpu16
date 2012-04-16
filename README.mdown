@@ -1,0 +1,23 @@
+DCPU-16
+=======
+
+This is a cycle-accurate implementation of the [DCPU-16][] CPU in Go.
+
+[DCPU-16]: http://0x10c.com/
+
+To fetch:
+
+    git clone https://github.com/kballard/dcpu16.git
+
+Emulator
+--------
+
+The emulator reads big-endian compiled programs and executes them at a set
+100KHz. It can be quit by pressing `^C`. It supports full color emulation within
+the limits of the xterm-256 color protocol, as well as the cyclic keyboard
+buffer. It does not support font mappings (due to the limitations of terminal
+output).
+
+To build:
+
+    go build
