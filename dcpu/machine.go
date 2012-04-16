@@ -120,10 +120,10 @@ func (m *Machine) Stop() error {
 	if m.stopped == nil {
 		return errors.New("Machine has not started")
 	}
-	m.Video.Close()
 	m.Video.UnmapFromMachine(0x8000, m)
 	m.Keyboard.UnmapFromMachine(0x9000, m)
 	m.stopper <- struct{}{}
+	m.Video.Close()
 	err := <-m.stopped
 	close(m.stopper)
 	m.stopper = nil
