@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/kballard/dcpu16/dcpu/core"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -134,7 +135,10 @@ func (m *Machine) Stop() error {
 type ClockRate int64
 
 func (c ClockRate) String() string {
-	rate := int64(c)
+	rate := float64(c)
+	// We want to do some rounding instead of pure truncation
+	// 99.999KHz shouldn't be showing as 99KHz
+	// Lets try rounding to 1 decimal place
 	suffix := "Hz"
 	if rate >= 1e6 {
 		rate /= 1e6
@@ -143,7 +147,11 @@ func (c ClockRate) String() string {
 		rate /= 1e3
 		suffix = "KHz"
 	}
-	return fmt.Sprintf("%d%s", rate, suffix)
+	ratestr := strconv.FormatFloat(rate, 'f', 1, 64)
+	if strings.HasSuffix(ratestr, ".0") {
+		ratestr = ratestr[:len(ratestr)-2]
+	}
+	return fmt.Sprintf("%s%s", ratestr, suffix)
 }
 
 func (c *ClockRate) Set(str string) error {
