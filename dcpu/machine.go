@@ -59,39 +59,53 @@ func (m *Machine) Start(rate ClockRate) (err error) {
 	go func() {
 		// we want an acurate cycle counter
 		// Unfortunately, time.NewTicker drops cycles on the floor if it can't keep up
-		// so we need to give ourselves a bit of a buffer. Hopefully 10 is enough
-		ticker := time.NewTicker(rate.ToDuration())
-		cycleChan := make(chan time.Time, 10)
-		go func() {
-			for {
-				if t, ok := <-ticker.C; ok {
-					cycleChan <- t
-				} else {
-					close(cycleChan)
-					break
-				}
-			}
-		}()
+		// So lets instead switch to running as many cycles as we need before using any
+		// timed delays
+		cycleChan := make(chan time.Time, 1)
 		scanrate := time.NewTicker(time.Second / 60) // 60Hz
 		var stoperr error
+		nextTime := time.Now()
+		period := rate.ToDuration()
+		cycleChan <- nextTime
+		var timerChan <-chan time.Time
+		// runCycle needs to be split into a function, because we want to call it if
+		// any of two channels has a value
+		runCycle := func() bool {
+			if err := m.State.StepCycle(); err != nil {
+				stoperr = &MachineError{err, m.State.PC()}
+				return false
+			}
+			m.cycleCount++
+			m.Keyboard.PollKeys()
+			nextTime = nextTime.Add(period)
+			now := time.Now()
+			if now.Before(nextTime) {
+				// delay the cycle
+				timerChan = time.After(nextTime.Sub(now))
+			} else {
+				// trigger a cycle now
+				cycleChan <- now
+			}
+			return true
+		}
 	loop:
 		for {
 			select {
 			case _ = <-scanrate.C:
 				m.Video.UpdateStats(&m.State, m.cycleCount)
 				m.Video.Flush()
-			case _ = <-cycleChan:
-				if err := m.State.StepCycle(); err != nil {
-					stoperr = &MachineError{err, m.State.PC()}
+			case _ = <-timerChan:
+				if !runCycle() {
 					break loop
 				}
-				m.cycleCount++
-				m.Keyboard.PollKeys()
+			case _ = <-cycleChan:
+				if !runCycle() {
+					break loop
+				}
 			case _ = <-stopper:
 				break loop
 			}
 		}
-		ticker.Stop()
 		scanrate.Stop()
 		stopped <- stoperr
 		close(stopped)
