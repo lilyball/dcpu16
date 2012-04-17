@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/kballard/dcpu16/dcpu/core"
 	"io"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -90,20 +91,23 @@ func (m *Machine) Start(rate ClockRate) (err error) {
 			} else {
 				// trigger a cycle now
 				cycleChan <- now
+				// Go currently uses cooperative scheduling, so we have to give
+				// other goroutines a chance to run
+				runtime.Gosched()
 			}
 			return true
 		}
 	loop:
 		for {
 			select {
-			case _ = <-scanrate.C:
+			case <-scanrate.C:
 				m.Video.UpdateStats(&m.State, m.cycleCount)
 				m.Video.Flush()
-			case _ = <-timerChan:
+			case <-timerChan:
 				if !runCycle() {
 					break loop
 				}
-			case _ = <-cycleChan:
+			case <-cycleChan:
 				if !runCycle() {
 					break loop
 				}
