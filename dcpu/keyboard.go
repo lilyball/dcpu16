@@ -62,7 +62,16 @@ func (k *Keyboard) UnmapFromMachine(offset core.Word, m *Machine) error {
 	return nil
 }
 
+var remapMap map[rune]rune = map[rune]rune{
+	'\x7F': '\x08', // fix delete on OS X
+	'\x0D': '\x0A', // fix return on OS X
+}
+
 func (k *Keyboard) RegisterKey(key rune) {
+	// process any remappings first
+	if k2, ok := remapMap[key]; ok {
+		key = k2
+	}
 	select {
 	case k.input <- key:
 	default:

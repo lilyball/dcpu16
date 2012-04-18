@@ -72,11 +72,7 @@ func main() {
 			// else pass it to the keyboard
 			if evt.Ch == 0 {
 				// it's a key constant
-				// We need to fold Backspace2 down into Backspace
 				key := evt.Key
-				if key == termbox.KeyBackspace2 {
-					key = termbox.KeyBackspace
-				}
 				machine.Keyboard.RegisterKey(rune(key))
 			} else {
 				machine.Keyboard.RegisterKey(evt.Ch)
