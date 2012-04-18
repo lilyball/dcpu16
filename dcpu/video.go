@@ -54,6 +54,7 @@ func (v *Video) Init() error {
 	// Default the background to cyan, for the heck of it
 	v.words[0x0280] = 3
 
+	v.clearDisplay()
 	v.drawBorder()
 
 	return nil
@@ -152,6 +153,17 @@ func (v *Video) drawBorder() {
 	// draw left/right
 	for _, col := range [2]int{0, windowWidth + 1} {
 		for row := 1; row < windowHeight+1; row++ {
+			termbox.SetCell(col, row, ' ', termbox.ColorDefault, attr)
+		}
+	}
+}
+
+func (v *Video) clearDisplay() {
+	// clear all cells inside of the border
+	attr := termbox.ColorBlack
+
+	for row := 1; row <= windowHeight; row++ {
+		for col := 1; col <= windowWidth; col++ {
 			termbox.SetCell(col, row, ' ', termbox.ColorDefault, attr)
 		}
 	}
