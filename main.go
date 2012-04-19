@@ -13,6 +13,7 @@ import (
 var requestedRate dcpu.ClockRate = dcpu.DefaultClockRate
 var printRate *bool = flag.Bool("printRate", false, "Print the effective clock rate at termination")
 var screenRefreshRate dcpu.ClockRate = dcpu.DefaultScreenRefreshRate
+var littleEndian *bool = flag.Bool("littleEndian", false, "Interpret the input file as little endian")
 
 func main() {
 	// command-line flags
@@ -37,7 +38,13 @@ func main() {
 	// Interpret the file as Words
 	words := make([]core.Word, len(data)/2)
 	for i := 0; i < len(data)/2; i++ {
-		w := core.Word(data[i*2])<<8 + core.Word(data[i*2+1])
+		b1, b2 := core.Word(data[i*2]), core.Word(data[i*2+1])
+		var w core.Word
+		if *littleEndian {
+			w = b2<<8 + b1
+		} else {
+			w = b1<<8 + b2
+		}
 		words[i] = w
 	}
 
