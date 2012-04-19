@@ -26,19 +26,16 @@ const DefaultScreenRefreshRate ClockRate = 60 // 60Hz
 var supportsXterm256 bool
 
 // colorToAnsi maps the 4-bit DCPU-16 colors to xterm-256 colors
-// We can't do an exat match, but we can get pretty close.
-// 0x55 becomes 0x66
-// 0xAA becomes 0x99
-// 0xFF is left as-is
+// We can't do an exact match, but we can get pretty close.
 // Note: color spec says +red, +green, -highlight puts the green channel
 // at 0xFF instead of 0xAA. After reading comments on the 0x10cwiki, this
 // is likely a bug, it should probably be dropped to 0x55. Also note that
 // this only holds if blue is off.
 var colorToAnsi [16]byte = [...]byte{
 	/* 0000 */ 16 /* 0001 */, 19 /* 0010 */, 34 /* 0011 */, 37,
-	/* 0100 */ 124 /* 0101 */, 127 /* 0110 */, 136 /* 0111 */, 145,
-	/* 1000 */ 102 /* 1001 */, 105 /* 1010 */, 120 /* 1011 */, 123,
-	/* 1100 */ 210 /* 1101 */, 213 /* 1110 */, 228 /* 1111 */, 231,
+	/* 0100 */ 124 /* 0101 */, 127 /* 0110 */, 130 /* 0111 */, 145,
+	/* 1000 */ 59  /* 1001 */, 63  /* 1010 */, 71  /* 1011 */, 87,
+	/* 1100 */ 203 /* 1101 */, 207 /* 1110 */, 227 /* 1111 */, 231,
 }
 
 type Video struct {
