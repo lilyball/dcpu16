@@ -2,6 +2,7 @@ package dcpu
 
 import (
 	"errors"
+	"fmt"
 	"github.com/kballard/dcpu16/dcpu/core"
 	"github.com/kballard/termbox-go"
 	"os"
@@ -34,7 +35,7 @@ var supportsXterm256 bool
 var colorToAnsi [16]byte = [...]byte{
 	/* 0000 */ 16 /* 0001 */, 19 /* 0010 */, 34 /* 0011 */, 37,
 	/* 0100 */ 124 /* 0101 */, 127 /* 0110 */, 130 /* 0111 */, 145,
-	/* 1000 */ 59  /* 1001 */, 63  /* 1010 */, 71  /* 1011 */, 87,
+	/* 1000 */ 59 /* 1001 */, 63 /* 1010 */, 71 /* 1011 */, 87,
 	/* 1100 */ 203 /* 1101 */, 207 /* 1110 */, 227 /* 1111 */, 231,
 }
 
@@ -179,13 +180,13 @@ func (v *Video) UpdateStats(state *core.State, cycleCount uint) {
 
 	row := windowHeight + 2 /* border */ + 1 /* spacing */
 	fg, bg := termbox.ColorDefault, termbox.ColorDefault
-	termbox.DrawStringf(1, row, fg, bg, "Cycles: %-11d  PC: %#04x", cycleCount, state.PC())
+	termbox.DrawString(1, row, fg, bg, fmt.Sprintf("Cycles: %-11d  PC: %#04x", cycleCount, state.PC()))
 	row++
-	termbox.DrawStringf(1, row, fg, bg, "A: %#04x  B: %#04X  C: %#04x  I: %#04x", state.A(), state.B(), state.C(), state.I())
+	termbox.DrawString(1, row, fg, bg, fmt.Sprintf("A: %#04x  B: %#04X  C: %#04x  I: %#04x", state.A(), state.B(), state.C(), state.I()))
 	row++
-	termbox.DrawStringf(1, row, fg, bg, "X: %#04x  Y: %#04x  Z: %#04x  J: %#04x", state.X(), state.Y(), state.Z(), state.J())
+	termbox.DrawString(1, row, fg, bg, fmt.Sprintf("X: %#04x  Y: %#04x  Z: %#04x  J: %#04x", state.X(), state.Y(), state.Z(), state.J()))
 	row++
-	termbox.DrawStringf(1, row, fg, bg, "O: %#04x SP: %#04x", state.O(), state.SP())
+	termbox.DrawString(1, row, fg, bg, fmt.Sprintf("O: %#04x SP: %#04x", state.O(), state.SP()))
 }
 
 func (v *Video) MapToMachine(offset core.Word, m *Machine) error {
