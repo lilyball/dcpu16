@@ -62,9 +62,20 @@ func (k *Keyboard) UnmapFromMachine(offset core.Word, m *Machine) error {
 	return nil
 }
 
-var remapMap map[rune]rune = map[rune]rune{
+var remapMap = map[rune]rune{
 	'\x7F': '\x08', // fix delete on OS X
 	'\x0D': '\x0A', // fix return on OS X
+	0xffed: 128,    // arrow up
+	0xffec: 129,    // arrow down
+	0xffeb: 130,    // arrow left
+	0xffea: 131,    // arrow right
+}
+
+var keyUpMap = map[rune]bool{
+	128: true,
+	129: true,
+	130: true,
+	131: true,
 }
 
 func (k *Keyboard) RegisterKey(key rune) {
@@ -74,6 +85,10 @@ func (k *Keyboard) RegisterKey(key rune) {
 	}
 	select {
 	case k.input <- key:
+		if keyUpMap[key] {
+			// if we sent the keydown, we must send the keyup unconditionally
+			k.input <- key | 0x100
+		}
 	default:
 	}
 }
