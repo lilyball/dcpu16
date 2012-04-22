@@ -12,10 +12,20 @@ import (
 )
 
 type Keyboard struct {
-	words  [0x10]core.Word
-	input  chan rune
-	offset int
+	words    [0x10]core.Word
+	input    chan rune
+	offset   int
+	keysDown map[Key]bool
 }
+
+type Key uint16
+
+const (
+	KeyArrowLeft  Key = 130
+	KeyArrowRight     = 131
+	KeyArrowUp        = 128
+	KeyArrowDown      = 129
+)
 
 // PollKeys checks for any pending keys and stuffs them into the buffer
 func (k *Keyboard) PollKeys() {
@@ -62,33 +72,31 @@ func (k *Keyboard) UnmapFromMachine(offset core.Word, m *Machine) error {
 	return nil
 }
 
-var remapMap = map[rune]rune{
-	'\x7F': '\x08', // fix delete on OS X
-	'\x0D': '\x0A', // fix return on OS X
-	0xffed: 128,    // arrow up
-	0xffec: 129,    // arrow down
-	0xffeb: 130,    // arrow left
-	0xffea: 131,    // arrow right
-}
-
-var keyUpMap = map[rune]bool{
-	128: true,
-	129: true,
-	130: true,
-	131: true,
-}
-
-func (k *Keyboard) RegisterKey(key rune) {
-	// process any remappings first
-	if k2, ok := remapMap[key]; ok {
-		key = k2
-	}
+func (k *Keyboard) RegisterKeyTyped(key rune) {
 	select {
 	case k.input <- key:
-		if keyUpMap[key] {
-			// if we sent the keydown, we must send the keyup unconditionally
-			k.input <- key | 0x100
-		}
 	default:
 	}
+}
+
+func (k *Keyboard) RegisterKeyPressed(key Key) {
+	if k.keysDown == nil {
+		k.keysDown = make(map[Key]bool)
+	}
+	select {
+	case k.input <- rune(key):
+		k.keysDown[key] = true
+	default:
+		k.keysDown[key] = false
+	}
+}
+
+func (k *Keyboard) RegisterKeyReleased(key Key) {
+	if !k.keysDown[key] {
+		// we didn't successfully send the key down, so skip the key up
+		return
+	}
+	// block on this one; we don't want to ever send key down and not key up
+	k.input <- rune(key) | 0x100
+	k.keysDown[key] = false
 }

@@ -80,9 +80,18 @@ func main() {
 			if evt.Ch == 0 {
 				// it's a key constant
 				key := evt.Key
-				machine.Keyboard.RegisterKey(rune(key))
+				if r, ok := keymapTermboxKeyToRune[key]; ok {
+					machine.Keyboard.RegisterKeyTyped(r)
+				} else if k, ok := keymapTermboxKeyToKey[key]; ok {
+					machine.Keyboard.RegisterKeyPressed(k)
+					machine.Keyboard.RegisterKeyReleased(k)
+				}
 			} else {
-				machine.Keyboard.RegisterKey(evt.Ch)
+				ch := evt.Ch
+				if r, ok := keymapRuneToRune[evt.Ch]; ok {
+					ch = r
+				}
+				machine.Keyboard.RegisterKeyTyped(ch)
 			}
 		}
 	}
