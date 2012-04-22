@@ -80,10 +80,6 @@ func (v *Video) updateCell(row, column int, word core.Word) {
 	column++
 
 	ch := rune(word & 0x7F)
-	if ch == 0 {
-		// replace 0000 with space
-		ch = 0x20
-	}
 	// color seems to be in the top 2 nibbles, MSB being FG and LSB are BG
 	// Within each nibble, from LSB to MSB, is blue, green, red, highlight
 	// Lastly, the bit at 0x80 is blink.
@@ -95,7 +91,34 @@ func (v *Video) updateCell(row, column int, word core.Word) {
 	if flag {
 		fg |= termbox.AttrBlink
 	}
+	if ch < 32 || ch == 127 {
+		// we want to render using the alternate charset
+		// There's only 26 usable characters though, and we don't have any idea what
+		// an appropriate mapping is. So for the moment, just map them fairly arbitrarily.
+		// Except for the arrow keys, those we want to match @notch's emulator.
+		// Oddly, @notch's emulator provides a character for up arrow, which is 128, which
+		// is a 0 with the blink tag set. Based on experimentation, the video RAM does default
+		// to 0, but writing a 0 back into the same spot draws the glyph.
+		// These explicit mappings are encoded in a map table. The rest are just assigned
+		// arbitrarily.
+		if ch == 127 {
+			ch = 32
+		}
+		if glyph, ok := glyphMap[ch]; ok {
+			ch = glyph
+		} else {
+			ch = ch%26 + 'a'
+		}
+		fg |= termbox.AttrAltCharset
+	}
 	termbox.SetCell(column, row, ch, fg, bg)
+}
+
+var glyphMap = map[rune]rune{
+	0: 'm',
+	1: 'v',
+	2: 'w',
+	3: 't',
 }
 
 func colorToAttr(color byte) termbox.Attribute {
