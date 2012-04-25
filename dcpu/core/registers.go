@@ -11,7 +11,8 @@ const (
 	registerJ
 	registerSP
 	registerPC
-	registerO
+	registerEX
+	registerIA
 	registerCount
 )
 
@@ -109,10 +110,18 @@ func (r *Registers) IncrPC() {
 	r.SetPC(r.PC() + 1)
 }
 
-func (r *Registers) O() Word {
-	return r[registerO]
+func (r *Registers) EX() Word {
+	return r[registerEX]
 }
 
-func (r *Registers) SetO(value Word) {
-	r[registerO] = value
+func (r *Registers) SetEX(value Word) {
+	r[registerEX] = value
+}
+
+func (r *Registers) IA() Word {
+	return r[registerIA]
+}
+
+func (r *Registers) SetIA(value Word) {
+	r[registerIA] = value
 }

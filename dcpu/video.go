@@ -217,7 +217,7 @@ func (v *Video) UpdateStats(state *core.State, cycleCount uint) {
 	row++
 	termbox.DrawString(1, row, fg, bg, fmt.Sprintf("X: %#04x  Y: %#04x  Z: %#04x  J: %#04x", state.X(), state.Y(), state.Z(), state.J()))
 	row++
-	termbox.DrawString(1, row, fg, bg, fmt.Sprintf("O: %#04x SP: %#04x", state.O(), state.SP()))
+	termbox.DrawString(1, row, fg, bg, fmt.Sprintf("O: %#04x SP: %#04x", state.EX(), state.SP()))
 }
 
 func (v *Video) MapToMachine(offset core.Word, m *Machine) error {

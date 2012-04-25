@@ -107,24 +107,24 @@ step:
 		case opcodeADD:
 			result := s.a + s.b
 			val = Word(result)
-			s.SetO(Word(result >> 16))
+			s.SetEX(Word(result >> 16))
 		case opcodeSUB:
 			result := s.a - s.b
 			val = Word(result)
-			s.SetO(Word(result >> 16))
+			s.SetEX(Word(result >> 16))
 		case opcodeMUL:
 			result := s.a * s.b
 			val = Word(result)
-			s.SetO(Word(result >> 16))
+			s.SetEX(Word(result >> 16))
 		case opcodeDIV:
 			if s.b == 0 {
 				val = 0
-				s.SetO(0)
+				s.SetEX(0)
 			} else {
 				result := s.a / s.b
 				val = Word(result)
-				// O is a bit weird here
-				s.SetO(Word((s.a << 16) / s.b))
+				// EX is a bit weird here
+				s.SetEX(Word((s.a << 16) / s.b))
 			}
 		case opcodeMOD:
 			if s.b == 0 {
@@ -135,10 +135,10 @@ step:
 		case opcodeSHL:
 			result := s.a << s.b
 			val = Word(result)
-			s.SetO(Word(result >> 16))
+			s.SetEX(Word(result >> 16))
 		case opcodeSHR:
 			val = Word(s.a >> s.b)
-			s.SetO(Word((s.a << 16) >> s.b))
+			s.SetEX(Word((s.a << 16) >> s.b))
 		case opcodeAND:
 			val = Word(s.a & s.b)
 		case opcodeBOR:
@@ -267,7 +267,7 @@ func (s *State) fetchOperand(operand uint32, loadWord bool) (val Word, address A
 			index:       s.SP(),
 		}
 	case 0x1b, 0x1c, 0x1d:
-		// SP / PC / O
+		// SP / PC / EX
 		// our register indexes go in the same order
 		address = Address{
 			addressType: addressTypeRegister,
