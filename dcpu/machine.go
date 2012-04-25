@@ -15,6 +15,7 @@ type Machine struct {
 	State      core.State
 	Video      Video
 	Keyboard   Keyboard
+	ErrorC     <-chan error // indicates when an error occurs
 	stopper    chan<- struct{}
 	stopped    <-chan error
 	cycleCount uint
@@ -56,6 +57,8 @@ func (m *Machine) Start(rate ClockRate) (err error) {
 	m.stopper = stopper
 	stopped := make(chan error, 1)
 	m.stopped = stopped
+	errchan := make(chan error, 1)
+	m.ErrorC = errchan
 	m.cycleCount = 0
 	m.startTime = time.Now()
 	go func() {
@@ -117,7 +120,9 @@ func (m *Machine) Start(rate ClockRate) (err error) {
 		}
 		scanrate.Stop()
 		stopped <- stoperr
+		errchan <- stoperr
 		close(stopped)
+		close(errchan)
 	}()
 	return nil
 }
@@ -136,6 +141,7 @@ func (m *Machine) Stop() error {
 	close(m.stopper)
 	m.stopper = nil
 	m.stopped = nil
+	m.ErrorC = nil
 	return err
 }
 
@@ -211,6 +217,7 @@ func (m *Machine) HasError() error {
 		close(m.stopper)
 		m.stopper = nil
 		m.stopped = nil
+		m.ErrorC = nil
 		return err
 	default:
 	}
