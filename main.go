@@ -65,6 +65,7 @@ func main() {
 		evt := termbox.PollEvent()
 		if err := machine.HasError(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
+			machine.State.Ram.DumpMemory(os.Stderr, []int{int(machine.State.PC())})
 			os.Exit(1)
 		}
 		if evt.Type == termbox.EventKey {
@@ -72,6 +73,7 @@ func main() {
 				effectiveRate = machine.EffectiveClockRate()
 				if err := machine.Stop(); err != nil {
 					fmt.Fprintln(os.Stderr, err)
+					machine.State.Ram.DumpMemory(os.Stderr, []int{int(machine.State.PC())})
 					os.Exit(1)
 				}
 				break

@@ -3,6 +3,8 @@ package core
 import (
 	"errors"
 	"fmt"
+	"io"
+	"sort"
 )
 
 type ProtectionError struct {
@@ -124,6 +126,64 @@ func (m *Memory) UnmapRegion(start, length Word) error {
 		}
 	}
 	return errors.New("UnmapRegion: no region matches the input")
+}
+
+// Writes all non-zero rows of memory to the writer in the format
+// 0000: 1111 2222 3333 4444 5555 6666 7777 8888
+// highlights is a slice of addresses that should be highlighted
+// when emitted. Primarily intended for highlighting PC. Note that
+// an otherwise-zero row will still be emitted if a word needs to
+// be highlighted.
+func (m *Memory) DumpMemory(w io.Writer, highlights []int) error {
+	var hslice []int
+	hnext := -1
+	if len(highlights) > 0 {
+		// copy and sort the highlights
+		hslice = make([]int, len(highlights))
+		copy(hslice, highlights)
+		sort.Ints(hslice)
+		hnext = hslice[0]
+		hslice = hslice[1:]
+	}
+	const width = 8
+	for i, j := 0, width; j < len(m.ram); i, j = i+width, j+width {
+		var nonzero bool
+		if hnext >= i && hnext < j {
+			nonzero = true
+		} else {
+			// test the memory for a non-zero
+			for k := i; k < j; k++ {
+				if m.ram[k] != 0 {
+					nonzero = true
+					break
+				}
+			}
+		}
+		if nonzero {
+			// print the row
+			if _, err := io.WriteString(w, fmt.Sprintf("%04x:", i)); err != nil {
+				return err
+			}
+			for k := i; k < j; k++ {
+				start, end := "", ""
+				if hnext == k {
+					start = "\033[44m"
+					end = "\033[m"
+					if len(hslice) > 0 {
+						hnext = hslice[0]
+						hslice = hslice[1:]
+					}
+				}
+				if _, err := io.WriteString(w, fmt.Sprintf(" %s%04x%s", start, m.ram[k], end)); err != nil {
+					return err
+				}
+			}
+			if _, err := w.Write([]byte{'\n'}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // LoadProgram loads a program from the given slice into Ram at the given offset.
