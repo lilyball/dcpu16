@@ -1,21 +1,23 @@
 package core
 
+type Opcode uint16
+
 // basic opcodes
 const (
-	opcodeSET = 0x01
-	opcodeADD = 0x02
-	opcodeSUB = 0x03
-	opcodeMUL = 0x04
-	opcodeMLI = 0x05
-	opcodeDIV = 0x06
-	opcodeDVI = 0x07
-	opcodeMOD = 0x08
-	opcodeAND = 0x09
-	opcodeBOR = 0x0a
-	opcodeXOR = 0x0b
-	opcodeSHR = 0x0c
-	opcodeASR = 0x0d
-	opcodeSHL = 0x0e
+	opcodeSET Opcode = 0x01
+	opcodeADD        = 0x02
+	opcodeSUB        = 0x03
+	opcodeMUL        = 0x04
+	opcodeMLI        = 0x05
+	opcodeDIV        = 0x06
+	opcodeDVI        = 0x07
+	opcodeMOD        = 0x08
+	opcodeAND        = 0x09
+	opcodeBOR        = 0x0a
+	opcodeXOR        = 0x0b
+	opcodeSHR        = 0x0c
+	opcodeASR        = 0x0d
+	opcodeSHL        = 0x0e
 	/* 0x0f is reserved */
 	opcodeIFB = 0x10
 	opcodeIFC = 0x11
@@ -29,7 +31,7 @@ const (
 
 // non-basic opcodes
 const (
-	opcodeJSR = 0x1
+	opcodeJSR Opcode = 0x1
 	/* 0x02-0x07 are reserved */
 	opcodeINT = 0x08
 	opcodeIAG = 0x09 // spec says ING, but it's probably a typo
@@ -42,12 +44,12 @@ const (
 
 // extended non-basic opcodes (internal representation)
 const (
-	opcodeExtJSR = opcodeJSR | opcodeExtendedOffset
-	opcodeExtINT = opcodeINT | opcodeExtendedOffset
-	opcodeExtIAG = opcodeIAG | opcodeExtendedOffset
-	opcodeExtIAS = opcodeIAS | opcodeExtendedOffset
-	opcodeExtHWN = opcodeHWN | opcodeExtendedOffset
-	opcodeExtHWQ = opcodeHWQ | opcodeExtendedOffset
-	opcodeExtHWI = opcodeHWI | opcodeExtendedOffset
+	opcodeExtJSR Opcode = opcodeJSR | opcodeExtendedOffset
+	opcodeExtINT        = opcodeINT | opcodeExtendedOffset
+	opcodeExtIAG        = opcodeIAG | opcodeExtendedOffset
+	opcodeExtIAS        = opcodeIAS | opcodeExtendedOffset
+	opcodeExtHWN        = opcodeHWN | opcodeExtendedOffset
+	opcodeExtHWQ        = opcodeHWQ | opcodeExtendedOffset
+	opcodeExtHWI        = opcodeHWI | opcodeExtendedOffset
 )
 const opcodeExtendedOffset = 0x100

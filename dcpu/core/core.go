@@ -7,7 +7,7 @@ import (
 type Word uint16
 
 type OpcodeError struct {
-	Opcode byte
+	Opcode
 }
 
 func (err *OpcodeError) Error() string {
@@ -16,13 +16,15 @@ func (err *OpcodeError) Error() string {
 
 type State struct {
 	Registers
-	Ram       Memory
-	lastError error   // once set, will be returned always
-	step      int     // fetch, decode, execute
-	cycleCost uint    // remaining cost of the opcode to execute
-	op, a, b  uint32  // operands and opcode (uint32 datatype used for math)
-	delayed   bool    // indicates whether we've already delayed the operand fetch
-	address   Address // location to store the result
+	Ram        Memory
+	lastError  error   // once set, will be returned always
+	step       int     // fetch, decode, execute
+	cycleCost  uint    // remaining cost of the opcode to execute
+	op         Opcode  // opcode
+	a, b       uint32  // operands (uint32 datatype used for math)
+	delayed    bool    // indicates whether we've already delayed the operand fetch
+	address    Address // location to store the result
+	interrupts []Word  // pending interrupts
 }
 
 const (
@@ -55,6 +57,21 @@ func (s *State) StepCycle() error {
 step:
 	switch s.step {
 	case stateStepFetch:
+		// Test for a pending interrupt
+		if len(s.interrupts) > 0 {
+			message := s.interrupts[0]
+			s.interrupts = s.interrupts[1:]
+			// shove an INT instruction into our state
+			s.op = opcodeExtINT
+			s.a = uint32(message)
+			if cost, err := cycleCost(s.op); err != nil {
+				panic("Unexpected error from cycleCost for opcodeExtINT")
+			} else {
+				s.cycleCost = cost
+			}
+			s.step = stateStepExecute // no decoding needed
+			goto step                 // restart the cycle
+		}
 		// Fetch the next opcode
 		opcode := s.nextWord()
 		s.op, s.a, s.b = decodeOpcode(opcode)
@@ -76,8 +93,8 @@ step:
 			break
 		}
 		s.a = uint32(val)
-		s.address = loc
 		if s.op >= opcodeExtendedOffset {
+			s.address = loc
 			s.step = stateStepExecute
 		} else {
 			s.step = stateStepDecodeB
@@ -85,12 +102,13 @@ step:
 		fallthrough
 	case stateStepDecodeB:
 		// decode operand B
-		val, _, delay := s.fetchOperand(s.b, s.delayed, true)
+		val, loc, delay := s.fetchOperand(s.b, s.delayed, true)
 		s.delayed = delay
 		if delay {
 			break
 		}
 		s.b = uint32(val)
+		s.address = loc
 		s.step = stateStepExecute
 		fallthrough
 	case stateStepExecute:
@@ -103,72 +121,93 @@ step:
 		var val Word
 		switch s.op {
 		case opcodeSET:
-			val = Word(s.b)
+			val = Word(s.a)
 		case opcodeADD:
-			result := s.a + s.b
+			result := s.b + s.a
 			val = Word(result)
 			s.SetEX(Word(result >> 16))
 		case opcodeSUB:
-			result := s.a - s.b
+			result := s.b - s.a
 			val = Word(result)
 			s.SetEX(Word(result >> 16))
 		case opcodeMUL:
-			result := s.a * s.b
+			result := s.b * s.a
+			val = Word(result)
+			s.SetEX(Word(result >> 16))
+		case opcodeMLI:
+			result := int32(s.b) * int32(s.a)
 			val = Word(result)
 			s.SetEX(Word(result >> 16))
 		case opcodeDIV:
-			if s.b == 0 {
+			if s.a == 0 {
 				val = 0
 				s.SetEX(0)
 			} else {
-				result := s.a / s.b
+				result := s.b / s.a
 				val = Word(result)
 				// EX is a bit weird here
-				s.SetEX(Word((s.a << 16) / s.b))
+				s.SetEX(Word((s.b << 16) / s.a))
+			}
+		case opcodeDVI:
+			if s.a == 0 {
+				val = 0
+				s.SetEX(0)
+			} else {
+				result := int16(s.b) / int16(s.a)
+				val = Word(result)
+				// EX is a bit weird here
+				s.SetEX(Word(int32(s.b) << 16 / int32(s.a)))
 			}
 		case opcodeMOD:
-			if s.b == 0 {
+			if s.a == 0 {
 				val = 0
 			} else {
-				val = Word(s.a % s.b)
+				val = Word(s.b % s.a)
 			}
+		case opcodeAND:
+			val = Word(s.b & s.a)
+		case opcodeBOR:
+			val = Word(s.b | s.a)
+		case opcodeXOR:
+			val = Word(s.b ^ s.a)
+		case opcodeSHR:
+			result := (s.b << 16) >> s.a
+			val = Word(result >> 16)
+			s.SetEX(Word(result))
+		case opcodeASR:
+			result := (int32(s.b) << 16) >> s.a
+			val = Word(result >> 16)
+			s.SetEX(Word(result))
 		case opcodeSHL:
 			result := s.a << s.b
 			val = Word(result)
 			s.SetEX(Word(result >> 16))
-		case opcodeSHR:
-			val = Word(s.a >> s.b)
-			s.SetEX(Word((s.a << 16) >> s.b))
-		case opcodeAND:
-			val = Word(s.a & s.b)
-		case opcodeBOR:
-			val = Word(s.a | s.b)
-		case opcodeXOR:
-			val = Word(s.a ^ s.b)
-		case opcodeIFE:
-			if !(s.a == s.b) {
+		case opcodeIFB, opcodeIFC, opcodeIFE, opcodeIFN, opcodeIFG, opcodeIFA, opcodeIFL, opcodeIFU:
+			var test bool
+			switch s.op {
+			case opcodeIFB:
+				test = (s.b & s.a) != 0
+			case opcodeIFC:
+				test = (s.b & s.a) == 0
+			case opcodeIFE:
+				test = s.b == s.a
+			case opcodeIFN:
+				test = s.b != s.a
+			case opcodeIFG:
+				test = s.b > s.a
+			case opcodeIFA:
+				test = int16(s.b) > int16(s.a)
+			case opcodeIFL:
+				test = s.b < s.a
+			case opcodeIFU:
+				test = int16(s.b) < int16(s.a)
+			}
+			if !test {
 				s.skipInstruction()
 				break step
 			}
 			s.address = Address{}
-		case opcodeIFN:
-			if !(s.a != s.b) {
-				s.skipInstruction()
-				break step
-			}
-			s.address = Address{}
-		case opcodeIFG:
-			if !(s.a > s.b) {
-				s.skipInstruction()
-				break step
-			}
-			s.address = Address{}
-		case opcodeIFB:
-			if !((s.a & s.b) != 0) {
-				s.skipInstruction()
-				break step
-			}
-			s.address = Address{}
+		/* extended opcodes */
 		case opcodeExtJSR:
 			val = s.PC()
 			s.DecrSP() // PUSH
@@ -177,9 +216,67 @@ step:
 				index:       s.SP(),
 			}
 			s.SetPC(Word(s.a))
+		case opcodeExtINT:
+			// Note: if hardware is really allowed to modify registers outside of
+			// a hardware interrupt, then this needs to be rewritten to use the 4 cycles
+			// to write the registers independently, instead of dumping them all at once here.
+			message := s.a
+			// re-use the cycle machinery to make writing to memory a bit easier
+			// temporarily disable interrupts
+			interrupts := s.interrupts
+			s.interrupts = nil
+			// SET PUSH, PC
+			s.op = opcodeSET
+			s.b = operandPushPop
+			s.a = operandPC
+			s.cycleCost = 0
+			s.step = stateStepDecodeA
+			if err := s.StepCycle(); err != nil {
+				return err
+			}
+			// SET PUSH, A
+			s.op = opcodeSET
+			s.b = operandPushPop
+			s.a = operandA
+			s.cycleCost = 0
+			s.step = stateStepDecodeA
+			if err := s.StepCycle(); err != nil {
+				return err
+			}
+			// SET A, message
+			s.SetA(Word(message))
+			// SET PC, IA
+			s.SetPC(s.IA())
+			s.address = Address{}
+			// re-enable interrupts
+			s.interrupts = interrupts
+		case opcodeExtIAG:
+			val = s.IA()
+		case opcodeExtIAS:
+			val = Word(s.a)
+			s.address = Address{
+				addressType: addressTypeRegister,
+				index:       registerIA,
+			}
+		case opcodeExtHWN:
+			// hardware support is forthcoming
+			val = 0
+		case opcodeExtHWQ:
+			// hardware support is forthcoming
+			// it's undefined in the spec, but I assume that an out-of-bounds hardware request
+			// will just set everything to 0
+			s.SetA(0)
+			s.SetB(0)
+			s.SetC(0)
+			s.SetX(0)
+			s.SetY(0)
+			s.address = Address{}
+		case opcodeExtHWI:
+			// hardware support is forthcoming
+			s.address = Address{}
 		default:
 			// cycleCost should have already caught this
-			panic("Unexpected opcode")
+			panic(fmt.Sprintf("Unexpected opcode %#04x", s.op))
 		}
 		if err := s.storeAddress(s.address, val); err != nil {
 			s.lastError = err
@@ -190,32 +287,43 @@ step:
 	return nil
 }
 
-func decodeOpcode(value Word) (ooooo, aaaaaa, bbbbb uint32) {
-	ooooo = uint32(value & 0x1f)
+func (s *State) TriggerSoftwareInterrupt(message Word) {
+	// We can't just modify the state directly, we might be mid-instruction.
+	// Stash the message into the state and let the next StepCycle find it during fetch.
+	s.interrupts = append(s.interrupts, message)
+}
+
+func decodeOpcode(value Word) (ooooo Opcode, aaaaaa, bbbbb uint32) {
+	ooooo = Opcode(value & 0x1f)
 	bbbbb = uint32(value>>5) & 0x1f
 	aaaaaa = uint32(value>>10) & 0x3f
 	if ooooo == 0 {
 		// extended opcode
-		ooooo, bbbbb = bbbbb+opcodeExtendedOffset, 0
+		ooooo, bbbbb = Opcode(bbbbb+opcodeExtendedOffset), 0
 	}
 	return
 }
 
+var cycleCostMap = map[Opcode]uint{
+	opcodeSET: 1,
+	opcodeADD: 2, opcodeSUB: 2,
+	opcodeMUL: 2, opcodeMLI: 2,
+	opcodeDIV: 3, opcodeDVI: 3, opcodeMOD: 3,
+	opcodeAND: 1, opcodeBOR: 1, opcodeXOR: 1,
+	opcodeSHR: 2, opcodeASR: 2, opcodeSHL: 2,
+	opcodeIFB: 2, opcodeIFC: 2, opcodeIFE: 2, opcodeIFN: 2,
+	opcodeIFG: 2, opcodeIFA: 2, opcodeIFL: 2, opcodeIFU: 2,
+	opcodeExtJSR: 3,
+	opcodeExtINT: 4, opcodeExtIAG: 1, opcodeExtIAS: 1,
+	opcodeExtHWN: 2, opcodeExtHWQ: 4, opcodeExtHWI: 4,
+}
+
 // cycleCost also doubles as an opcode validity test
-func cycleCost(opcode uint32) (uint, error) {
-	switch opcode {
-	case opcodeSET, opcodeAND, opcodeBOR, opcodeXOR:
-		return 1, nil
-	case opcodeADD, opcodeSUB, opcodeMUL, opcodeSHR, opcodeSHL:
-		return 2, nil
-	case opcodeDIV, opcodeMOD:
-		return 3, nil
-	case opcodeIFE, opcodeIFN, opcodeIFG, opcodeIFB:
-		return 2, nil
-	case opcodeExtJSR:
-		return 2, nil
+func cycleCost(opcode Opcode) (uint, error) {
+	if cost, ok := cycleCostMap[opcode]; ok {
+		return cost, nil
 	}
-	return 0, &OpcodeError{byte(opcode)}
+	return 0, &OpcodeError{opcode}
 }
 
 // fetchOperand fetches the value indicated by the operand.
@@ -225,7 +333,7 @@ func cycleCost(opcode uint32) (uint, error) {
 // The parameter isB should be set to true for the b operand and false for the a operand.
 func (s *State) fetchOperand(operand uint32, loadWord, isB bool) (val Word, address Address, delay bool) {
 	switch operand {
-	case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07:
+	case operandA /* 0x00 */, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07:
 		// register (A, B, C, X, Y, Z, I or J, in that order)
 		address = Address{
 			addressType: addressTypeRegister,
@@ -247,7 +355,7 @@ func (s *State) fetchOperand(operand uint32, loadWord, isB bool) (val Word, addr
 		} else {
 			delay = true
 		}
-	case 0x18:
+	case operandPushPop: // 0x18
 		// (PUSH / [--SP]) if in b, or (POP / [SP++]) if in a
 		if isB {
 			// PUSH
@@ -276,7 +384,7 @@ func (s *State) fetchOperand(operand uint32, loadWord, isB bool) (val Word, addr
 			addressType: addressTypeMemory,
 			index:       s.SP() + s.nextWord(),
 		}
-	case 0x1b, 0x1c, 0x1d:
+	case 0x1b, operandPC /* 0x1c */, 0x1d:
 		// SP / PC / EX
 		// our register indexes go in the same order
 		address = Address{
@@ -304,6 +412,9 @@ func (s *State) fetchOperand(operand uint32, loadWord, isB bool) (val Word, addr
 		if operand > 0x3f {
 			// this shouldn't be possible
 			panic(fmt.Sprintf("Unexpected operand %#02x", operand))
+		} else if operand < 0x20 {
+			// this also shouldn't be possible
+			panic(fmt.Sprintf("Program error: didn't handle operand %#02x", operand))
 		}
 		// literal value 0xffff-0x1e (-1..30) (literal) (only for a)
 		val = Word(operand) - 0x21
@@ -351,7 +462,7 @@ func (s *State) skipInstruction() {
 	opcode := s.Ram.Load(s.PC())
 	count := instructionLength(opcode)
 	s.op = opcodeSET
-	s.b = uint32(s.PC() + count)
+	s.a = uint32(s.PC() + count)
 	s.address = Address{
 		addressType: addressTypeRegister,
 		index:       registerPC,
