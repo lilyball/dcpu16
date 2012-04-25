@@ -70,7 +70,7 @@ step:
 		fallthrough
 	case stateStepDecodeA:
 		// decode operand A
-		val, loc, delay := s.fetchOperand(s.a, s.delayed)
+		val, loc, delay := s.fetchOperand(s.a, s.delayed, false)
 		s.delayed = delay
 		if delay {
 			break
@@ -85,7 +85,7 @@ step:
 		fallthrough
 	case stateStepDecodeB:
 		// decode operand B
-		val, _, delay := s.fetchOperand(s.b, s.delayed)
+		val, _, delay := s.fetchOperand(s.b, s.delayed, true)
 		s.delayed = delay
 		if delay {
 			break
@@ -222,7 +222,8 @@ func cycleCost(opcode uint32) (uint, error) {
 // If the operand needs to fetch the next word and loadWord is false,
 // it returns true in delay. Otherwise, if loadWord is true, or if it
 // doesn't need to fetch a word, delay will be false and a value will be returned.
-func (s *State) fetchOperand(operand uint32, loadWord bool) (val Word, address Address, delay bool) {
+// The parameter isB should be set to true for the b operand and false for the a operand.
+func (s *State) fetchOperand(operand uint32, loadWord, isB bool) (val Word, address Address, delay bool) {
 	switch operand {
 	case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07:
 		// register (A, B, C, X, Y, Z, I or J, in that order)
@@ -247,12 +248,22 @@ func (s *State) fetchOperand(operand uint32, loadWord bool) (val Word, address A
 			delay = true
 		}
 	case 0x18:
-		// POP / [SP++]
-		address = Address{
-			addressType: addressTypeMemory,
-			index:       s.SP(),
+		// (PUSH / [--SP]) if in b, or (POP / [SP++]) if in a
+		if isB {
+			// PUSH
+			s.DecrSP()
+			address = Address{
+				addressType: addressTypeMemory,
+				index:       s.SP(),
+			}
+		} else {
+			// POP
+			address = Address{
+				addressType: addressTypeMemory,
+				index:       s.SP(),
+			}
+			s.IncrSP()
 		}
-		s.IncrSP()
 	case 0x19:
 		// PEEK / [SP]
 		address = Address{
@@ -260,11 +271,10 @@ func (s *State) fetchOperand(operand uint32, loadWord bool) (val Word, address A
 			index:       s.SP(),
 		}
 	case 0x1a:
-		// PUSH / [--SP]
-		s.DecrSP()
+		// [SP + next word] / PICK n
 		address = Address{
 			addressType: addressTypeMemory,
-			index:       s.SP(),
+			index:       s.SP() + s.nextWord(),
 		}
 	case 0x1b, 0x1c, 0x1d:
 		// SP / PC / EX
@@ -295,7 +305,8 @@ func (s *State) fetchOperand(operand uint32, loadWord bool) (val Word, address A
 			// this shouldn't be possible
 			panic(fmt.Sprintf("Unexpected operand %#02x", operand))
 		}
-		val = Word(operand) - 0x20
+		// literal value 0xffff-0x1e (-1..30) (literal) (only for a)
+		val = Word(operand) - 0x21
 	}
 	if address.addressType != addressTypeNone {
 		val = s.loadAddress(address)
