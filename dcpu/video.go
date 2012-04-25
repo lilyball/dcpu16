@@ -124,11 +124,19 @@ var glyphMap = map[rune]rune{
 func colorToAttr(color byte) termbox.Attribute {
 	var attr termbox.Attribute
 	if supportsXterm256 {
-		// We need to use xterm-256 colors to work properly here.
-		// Luckily, we built a table!
-		attr = termbox.ColorXterm256
-		ansi := colorToAnsi[color]
-		attr |= termbox.Attribute(ansi) << termbox.XtermColorShift
+		// special-case 0 for Terminal.app.
+		// Terminal.app adjusts the foreground colors a bit so text can be distinguished
+		// from a same-colored background. We don't want this. It doesn't appear to perform
+		// this adjustment for ANSI color 0 (but it does for xterm-256 color 16).
+		if color == 0 {
+			attr = termbox.ColorBlack
+		} else {
+			// We need to use xterm-256 colors to work properly here.
+			// Luckily, we built a table!
+			attr = termbox.ColorXterm256
+			ansi := colorToAnsi[color]
+			attr |= termbox.Attribute(ansi) << termbox.XtermColorShift
+		}
 	} else {
 		// We don't seem to support xterm-256 colors, so fall back on
 		// trying to use the normal ANSI colors
