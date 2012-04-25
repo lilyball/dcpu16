@@ -190,13 +190,13 @@ step:
 	return nil
 }
 
-func decodeOpcode(value Word) (oooo, aaaaaa, bbbbbb uint32) {
-	oooo = uint32(value) & 0xF
-	aaaaaa = uint32(value>>4) & 0x3F
-	bbbbbb = uint32(value>>10) & 0x3F
-	if oooo == 0 {
+func decodeOpcode(value Word) (ooooo, aaaaaa, bbbbb uint32) {
+	ooooo = uint32(value & 0x1f)
+	bbbbb = uint32(value>>5) & 0x1f
+	aaaaaa = uint32(value>>10) & 0x3f
+	if ooooo == 0 {
 		// extended opcode
-		oooo, aaaaaa, bbbbbb = aaaaaa+opcodeExtendedOffset, bbbbbb, 0
+		ooooo, bbbbb = bbbbb+opcodeExtendedOffset, 0
 	}
 	return
 }
