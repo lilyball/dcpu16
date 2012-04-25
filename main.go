@@ -59,42 +59,53 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	var effectiveRate dcpu.ClockRate
-	// now wait for the ^C key
-	for {
-		evt := termbox.PollEvent()
-		if err := machine.HasError(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			machine.State.Ram.DumpMemory(os.Stderr, []int{int(machine.State.PC())})
-			os.Exit(1)
+	// convert termbox event polling into a channel
+	events := make(chan termbox.Event)
+	go func() {
+		for {
+			events <- termbox.PollEvent()
 		}
-		if evt.Type == termbox.EventKey {
-			if evt.Key == termbox.KeyCtrlC {
-				effectiveRate = machine.EffectiveClockRate()
-				if err := machine.Stop(); err != nil {
-					fmt.Fprintln(os.Stderr, err)
-					machine.State.Ram.DumpMemory(os.Stderr, []int{int(machine.State.PC())})
-					os.Exit(1)
+	}()
+	var effectiveRate dcpu.ClockRate
+	printErr := func(err error) {
+		fmt.Fprintln(os.Stderr, err)
+		machine.State.Ram.DumpMemory(os.Stderr, []int{int(machine.State.PC())})
+		os.Exit(1)
+	}
+	// now wait for keyboard events
+loop:
+	for {
+		select {
+		case evt := <-events:
+			if evt.Type == termbox.EventKey {
+				if evt.Key == termbox.KeyCtrlC {
+					effectiveRate = machine.EffectiveClockRate()
+					if err := machine.Stop(); err != nil {
+						printErr(err)
+					}
+					break loop
 				}
-				break
+				// else pass it to the keyboard
+				if evt.Ch == 0 {
+					// it's a key constant
+					key := evt.Key
+					if r, ok := keymapTermboxKeyToRune[key]; ok {
+						machine.Keyboard.RegisterKeyTyped(r)
+					} else if k, ok := keymapTermboxKeyToKey[key]; ok {
+						machine.Keyboard.RegisterKeyPressed(k)
+						machine.Keyboard.RegisterKeyReleased(k)
+					}
+				} else {
+					ch := evt.Ch
+					if r, ok := keymapRuneToRune[evt.Ch]; ok {
+						ch = r
+					}
+					machine.Keyboard.RegisterKeyTyped(ch)
+				}
 			}
-			// else pass it to the keyboard
-			if evt.Ch == 0 {
-				// it's a key constant
-				key := evt.Key
-				if r, ok := keymapTermboxKeyToRune[key]; ok {
-					machine.Keyboard.RegisterKeyTyped(r)
-				} else if k, ok := keymapTermboxKeyToKey[key]; ok {
-					machine.Keyboard.RegisterKeyPressed(k)
-					machine.Keyboard.RegisterKeyReleased(k)
-				}
-			} else {
-				ch := evt.Ch
-				if r, ok := keymapRuneToRune[evt.Ch]; ok {
-					ch = r
-				}
-				machine.Keyboard.RegisterKeyTyped(ch)
-			}
+		case err := <-machine.ErrorC:
+			machine.Stop() // unlike HasError(), ErrorC doesn't shut down the machine
+			printErr(err)
 		}
 	}
 	if *printRate {
