@@ -9,6 +9,7 @@ import (
 
 var keymapTermboxKeyToRune = map[termbox.Key]rune{
 	termbox.KeyDelete: 127,
+	termbox.KeySpace:  0x20,
 }
 
 var keymapTermboxKeyToKey = map[termbox.Key]dcpu.Key{
