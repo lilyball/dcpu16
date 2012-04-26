@@ -380,9 +380,13 @@ func (s *State) fetchOperand(operand uint32, loadWord, isB bool) (val Word, addr
 		}
 	case 0x1a:
 		// [SP + next word] / PICK n
-		address = Address{
-			addressType: addressTypeMemory,
-			index:       s.SP() + s.nextWord(),
+		if loadWord {
+			address = Address{
+				addressType: addressTypeMemory,
+				index:       s.SP() + s.nextWord(),
+			}
+		} else {
+			delay = true
 		}
 	case 0x1b, operandPC /* 0x1c */, 0x1d:
 		// SP / PC / EX
